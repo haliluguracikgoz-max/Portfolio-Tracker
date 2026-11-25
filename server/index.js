@@ -2,11 +2,11 @@ import { readFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { extname, join, normalize, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { nyDate } from '../shared/dates.js';
+import { addDays, nyDate } from '../shared/dates.js';
 import { App, HttpError } from './app.js';
 import { Auth, MIN_PASSWORD } from './auth.js';
 import { defaultDbPath, openDb } from './db.js';
-import { Market, MarketError } from './market.js';
+import { BENCH, Market, MarketError } from './market.js';
 
 const PORT = Number(process.env.PORT ?? 4517);
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
@@ -160,5 +160,18 @@ server.on('error', (e) => {
 server.listen(PORT, HOSTED ? '::' : '127.0.0.1', () => {
   console.log(`Portfolio Tracker: http://localhost:${PORT}`);
   for (const p of setupProblems) console.error(p);
+  if (HOSTED) checkPriceService();
 });
+
+/** Fiyat servisi veri merkezi adreslerini engelleyebilir; durum açılışta loglara yazılır. */
+async function checkPriceService() {
+  const probe = new Market(openDb(':memory:'));
+  try {
+    await probe.ensure(BENCH, addDays(nyDate(), -30));
+    const found = await probe.search('AAPL');
+    console.log(`Fiyat servisi çalışıyor: ${probe.bench().length} S&P 500 kapanışı, ${found.length} arama sonucu.`);
+  } catch (e) {
+    console.error(`Fiyat servisi kontrolü başarısız: ${e.message}`);
+  }
+}
 for (const signal of ['SIGTERM', 'SIGINT']) process.on(signal, () => process.exit(0));
