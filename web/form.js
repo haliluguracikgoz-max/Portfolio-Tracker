@@ -2,6 +2,7 @@ import { nyDate } from '/shared/dates.js';
 import { parseNumber } from '/shared/number.js';
 import { api } from './api.js';
 import { h, newId } from './dom.js';
+import { icon } from './icons.js';
 import { inputNumber, longDate, money, price as fmtPrice, qty as fmtQty } from './format.js';
 
 const TYPES = [
@@ -29,6 +30,9 @@ export function openTxForm({ state, preset = {}, edit = null, onSaved }) {
     control.id ||= newId('f');
     return h('div', { class: 'field' }, h('label', { for: control.id }, label), control, hint);
   };
+  // Dokunmatik ekranda alanı kendiliğinden seçmek klavyeyi açıp formu örter.
+  const touch = matchMedia('(pointer: coarse)').matches;
+  const focus = (el) => touch || el.focus();
   const decimal = (value) => h('input', { inputmode: 'decimal', autocomplete: 'off', value: inputNumber(value), placeholder: '0,00' });
 
   const date = h('input', { type: 'date', max: nyDate(), min: '1970-01-01', required: true, value: init.date ?? nyDate() });
@@ -81,7 +85,7 @@ export function openTxForm({ state, preset = {}, edit = null, onSaved }) {
         h('button', { type: 'button', class: 'chip', 'aria-pressed': String(key === type), onclick: () => {
           type = key;
           renderType();
-          (isTrade() || type === 'DIVIDEND' ? symbol : amount).focus();
+          focus(isTrade() || type === 'DIVIDEND' ? symbol : amount);
         } }, label),
       ),
     );
@@ -214,7 +218,8 @@ export function openTxForm({ state, preset = {}, edit = null, onSaved }) {
     }
   });
   symbol.addEventListener('blur', () => {
-    closeList();
+    // Dokunulan öneri, liste kapanmadan seçilebilsin.
+    setTimeout(() => document.activeElement === symbol || closeList(), 200);
     symbol.value = symbol.value.trim().toUpperCase();
     fetchPrice();
   });
@@ -241,7 +246,7 @@ export function openTxForm({ state, preset = {}, edit = null, onSaved }) {
   for (const el of [quantity, price, fee, amount, viaCash, viaExternal]) el.addEventListener('input', updateHints);
 
   const form = h('form', { novalidate: true },
-    h('div', { class: 'dialog-head' }, h('h2', null, edit ? 'İşlemi düzenle' : 'İşlem ekle'), h('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Kapat', onclick: () => dialog.close() }, '✕')),
+    h('div', { class: 'dialog-head' }, h('h2', null, edit ? 'İşlemi düzenle' : 'İşlem ekle'), h('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Kapat', onclick: () => dialog.close() }, icon('close'))),
     h('div', { class: 'form-grid' }, tabs, symbolField, dateField, quantityField, priceField, amountField, feeField, settleField, noteField, preview, error),
     h('div', { class: 'dialog-foot' }, h('button', { type: 'button', class: 'btn', onclick: () => dialog.close() }, 'Vazgeç'), submit),
   );
@@ -267,10 +272,25 @@ export function openTxForm({ state, preset = {}, edit = null, onSaved }) {
       submit.disabled = false;
     }
   });
-  dialog.addEventListener('close', () => dialog.remove());
+  // Telefonda klavye açılınca form, klavyenin üstünde kalan alana sığar.
+  const viewport = window.visualViewport;
+  const fit = () => {
+    dialog.style.setProperty('--vv-top', `${viewport.offsetTop}px`);
+    dialog.style.setProperty('--vv-height', `${viewport.height}px`);
+  };
+  if (viewport) {
+    fit();
+    viewport.addEventListener('resize', fit);
+    viewport.addEventListener('scroll', fit);
+  }
+  dialog.addEventListener('close', () => {
+    viewport?.removeEventListener('resize', fit);
+    viewport?.removeEventListener('scroll', fit);
+    dialog.remove();
+  });
   document.body.append(dialog);
   renderType();
   dialog.showModal();
-  (symbolField.hidden ? amount : symbol.value ? quantity : symbol).focus();
+  focus(symbolField.hidden ? amount : symbol.value ? quantity : symbol);
   fetchPrice();
 }

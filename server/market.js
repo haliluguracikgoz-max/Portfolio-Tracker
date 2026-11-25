@@ -6,6 +6,8 @@ const BASE = 'https://query1.finance.yahoo.com';
 const HISTORY_TTL = 12 * 3600_000;
 const QUOTE_TTL_OPEN = 30_000;
 const QUOTE_TTL_CLOSED = 10 * 60_000;
+// Kapanıştan sonra resmî kapanış fiyatının oturması için tanınan süre (saniye).
+const CLOSE_GRACE = 30 * 60;
 const KINDS = new Set(['EQUITY', 'ETF', 'MUTUALFUND']);
 // Yahoo'nun ABD borsa kodları: NASDAQ, NYSE, AMEX, Arca, Cboe ve tezgâh üstü pazarlar.
 const US_EXCHANGES = new Set(['NMS', 'NGM', 'NCM', 'NAS', 'NYQ', 'ASE', 'PCX', 'BTS', 'CBO', 'PNK', 'OQB', 'OQX', 'OEM', 'YHD']);
@@ -92,6 +94,17 @@ export class Market {
     return !!r?.session_start && t >= r.session_start && t < r.session_end && r.quote_time >= r.session_start;
   }
 
+  /**
+   * Fiyatın tazelik süresi. Seans saatlerinde her fiyat, kapalıyken yalnızca endeks sık yenilenir:
+   * endeks sonraki seansın saatini verdiği için açılış gecikmeden fark edilir.
+   */
+  #quoteTtl(symbol, now) {
+    const r = this.#row(BENCH);
+    const t = now / 1000;
+    const session = r?.session_start && t >= r.session_start && t < r.session_end + CLOSE_GRACE;
+    return session || symbol === BENCH ? QUOTE_TTL_OPEN : QUOTE_TTL_CLOSED;
+  }
+
   /** Hesaplama boyunca tekrar tekrar SQL'e gitmemek için sabit bir görünüm. */
   snapshot() {
     const memo = (fn) => {
@@ -127,8 +140,7 @@ export class Market {
     if (!row || !row.covered_from || from < row.covered_from || now - row.history_at > HISTORY_TTL) {
       return this.#fetchHistory(symbol, start);
     }
-    const ttl = this.isOpen(now) ? QUOTE_TTL_OPEN : QUOTE_TTL_CLOSED;
-    if (!force && now - row.quote_at < ttl) return;
+    if (!force && now - row.quote_at < this.#quoteTtl(symbol, now)) return;
 
     const chart = parseChart(await this.#get(`/v8/finance/chart/${encodeURIComponent(symbol)}?range=5d&interval=1d&events=split%2Cdiv`));
     if (!chart) return;

@@ -5,15 +5,18 @@ import { columnChart, legend, lineChart, sparkline, treemap } from './charts.js'
 import { h } from './dom.js';
 import * as f from './format.js';
 import { openTxForm } from './form.js';
+import { icon } from './icons.js';
 
 const view = document.getElementById('view');
 const topbar = document.getElementById('topbar');
+const tabbar = document.getElementById('tabbar');
 const toasts = document.getElementById('toasts');
 
 let state = null;
 let detail = null;
 let loadError = null;
-let loading = false;
+let loadingSince = 0;
+let spinning = false;
 let renderedKey = '';
 
 const store = {
@@ -105,7 +108,7 @@ function dataTable(heads, rows, className = '') {
   return h('div', { class: `table-wrap ${className}` },
     h('table', null,
       h('thead', null, h('tr', null, heads.map((c, i) => h('th', { scope: 'col', class: i ? 'num' : '' }, c)))),
-      h('tbody', null, rows.map((r) => h('tr', null, r.map((c, i) => h('td', { class: i ? 'num' : '' }, c)))))));
+      h('tbody', null, rows.map((r) => h('tr', null, r.map((c, i) => h('td', { class: i ? 'num' : '', 'data-label': heads[i] || null }, c)))))));
 }
 
 const seriesTable = (dates, series, format) =>
@@ -224,21 +227,21 @@ function holdingsCard() {
       h('tbody', null,
         rows.map((p) => h('tr', null,
           h('th', { scope: 'row' }, h('a', { href: symbolHref(p.symbol) }, h('b', null, p.symbol), h('span', null, p.name))),
-          h('td', null, sparkline(p.spark, f.tone(p.spark.at(-1) - p.spark[0]))),
-          h('td', { class: 'num' }, f.qty(p.quantity)),
-          h('td', { class: 'num' }, f.price(p.avgCost)),
-          h('td', { class: 'num' }, f.price(p.price)),
-          h('td', { class: 'num' }, delta(p.dayChangePct, f.signedPct(p.dayChangePct)), h('small', null, f.signedMoney(p.dayChange))),
-          h('td', { class: 'num strong' }, f.money(p.value)),
-          h('td', { class: 'num' }, f.pct1(p.weight)),
-          h('td', { class: 'num' }, delta(p.unrealized, f.signedMoney(p.unrealized)), h('small', null, f.signedPct(p.unrealizedPct))),
+          h('td', { class: 'c-spark' }, sparkline(p.spark, f.tone(p.spark.at(-1) - p.spark[0]))),
+          h('td', { class: 'num c-a', 'data-label': 'Adet' }, f.qty(p.quantity)),
+          h('td', { class: 'num c-b', 'data-label': 'Maliyet' }, f.price(p.avgCost)),
+          h('td', { class: 'num c-c', 'data-label': 'Fiyat' }, f.price(p.price)),
+          h('td', { class: 'num c-day' }, delta(p.dayChangePct, f.signedPct(p.dayChangePct)), h('small', null, f.signedMoney(p.dayChange))),
+          h('td', { class: 'num strong c-value' }, f.money(p.value)),
+          h('td', { class: 'num c-weight' }, f.pct1(p.weight)),
+          h('td', { class: 'num c-d', 'data-label': 'Kâr / zarar' }, delta(p.unrealized, f.signedMoney(p.unrealized)), h('small', null, f.signedPct(p.unrealizedPct))),
           h('td', { class: 'row-actions' },
             h('button', { class: 'ghost', 'aria-label': `${p.symbol} al`, onclick: () => openForm({ type: 'BUY', symbol: p.symbol }) }, 'Al'),
             h('button', { class: 'ghost', 'aria-label': `${p.symbol} sat`, onclick: () => openForm({ type: 'SELL', symbol: p.symbol }) }, 'Sat')))),
         h('tr', { class: 'cash-row' },
           h('th', { scope: 'row' }, h('b', null, 'Nakit'), h('span', null, 'ABD doları')),
-          h('td', { colspan: 5 }), h('td', { class: 'num strong' }, f.money(state.summary.cash)),
-          h('td', { class: 'num' }, state.summary.value > 0 ? f.pct1(state.summary.cash / state.summary.value) : '–'), h('td'),
+          h('td', { class: 'c-gap', colspan: 5 }), h('td', { class: 'num strong c-value' }, f.money(state.summary.cash)),
+          h('td', { class: 'num c-weight' }, state.summary.value > 0 ? f.pct1(state.summary.cash / state.summary.value) : '–'), h('td', { class: 'c-gap' }),
           h('td', { class: 'row-actions' },
             h('button', { class: 'ghost', onclick: () => openForm({ type: 'DEPOSIT' }) }, 'Ekle'),
             h('button', { class: 'ghost', onclick: () => openForm({ type: 'WITHDRAW' }) }, 'Çek')))))));
@@ -317,7 +320,7 @@ function closedCard() {
     h('header', { class: 'card-head' }, h('div', null, h('h2', null, 'Kapanan pozisyonlar'))),
     dataTable(['Hisse', 'Son işlem', 'Gerçekleşen', 'Temettü', 'Toplam'], state.closed.map((p) => [
       h('a', { href: symbolHref(p.symbol) }, p.symbol), f.longDate(p.lastDate), delta(p.realized, f.signedMoney(p.realized)), f.money(p.dividends), delta(p.totalGain, f.signedMoney(p.totalGain)),
-    ])));
+    ]), 'stack'));
 }
 
 // ---------------------------------------------------------------- İşlemler
@@ -338,6 +341,20 @@ function importButton(className, label) {
   return h('span', null, input, h('button', { class: className, onclick: () => input.click() }, label));
 }
 
+/** Ana ekrana eklenmiş uygulamada indirme sayfası geri dönüşsüz açılabildiği için paylaşım menüsü kullanılır. */
+async function shareCsv(e) {
+  const standalone = navigator.standalone || matchMedia('(display-mode: standalone)').matches;
+  if (!standalone || !navigator.canShare?.({ files: [new File([''], 'a.csv', { type: 'text/csv' })] })) return;
+  e.preventDefault();
+  try {
+    const res = await fetch('/api/export');
+    if (!res.ok) throw new Error('CSV hazırlanamadı.');
+    await navigator.share({ files: [new File([await res.blob()], `portfolio-${state.lastTradingDate ?? 'islemler'}.csv`, { type: 'text/csv' })] });
+  } catch (err) {
+    if (err.name !== 'AbortError') toast(err.message, { error: true });
+  }
+}
+
 /** İşlemin portföydeki nakde etkisi. */
 function cashEffect(t) {
   if (t.type === 'BUY') return t.settle === 'CASH' ? -(t.quantity * t.price + t.fee) : 0;
@@ -354,15 +371,15 @@ function txTable(list, { withSymbol = true } = {}) {
       const trade = t.type === 'BUY' || t.type === 'SELL';
       const effect = cashEffect(t);
       return h('tr', null,
-        h('td', { class: 'nowrap' }, f.longDate(t.date)),
-        h('td', null, h('span', { class: `tag ${t.type.toLowerCase()}` }, f.TYPE_LABEL[t.type])),
-        withSymbol && h('td', null, t.symbol ? h('a', { href: symbolHref(t.symbol) }, t.symbol) : '–'),
-        h('td', { class: 'num' }, trade ? f.qty(t.quantity) : '–'),
-        h('td', { class: 'num' }, trade ? f.price(t.price) : '–'),
-        h('td', { class: 'num' }, t.fee ? f.money(t.fee) : '–'),
-        h('td', { class: 'num strong' }, f.money(trade ? t.quantity * t.price : t.amount)),
-        h('td', { class: 'num' }, effect ? delta(effect, f.signedMoney(effect)) : h('span', { class: 'muted' }, 'dışarıdan')),
-        h('td', { class: 'note-cell', title: t.note || null }, t.note),
+        h('td', { class: 'nowrap c-date' }, f.longDate(t.date)),
+        h('td', { class: 'c-type' }, h('span', { class: `tag ${t.type.toLowerCase()}` }, f.TYPE_LABEL[t.type])),
+        withSymbol && h('td', { class: `c-symbol${t.symbol ? '' : ' none'}` }, t.symbol ? h('a', { href: symbolHref(t.symbol) }, t.symbol) : '–'),
+        h('td', { class: `num c-qty${trade ? '' : ' none'}`, 'data-label': 'Adet' }, trade ? f.qty(t.quantity) : '–'),
+        h('td', { class: `num c-price${trade ? '' : ' none'}`, 'data-label': 'Fiyat' }, trade ? f.price(t.price) : '–'),
+        h('td', { class: `num c-fee${t.fee ? '' : ' none'}`, 'data-label': 'Komisyon' }, t.fee ? f.money(t.fee) : '–'),
+        h('td', { class: 'num strong c-amount' }, f.money(trade ? t.quantity * t.price : t.amount)),
+        h('td', { class: 'num c-effect' }, effect ? delta(effect, f.signedMoney(effect)) : h('span', { class: 'muted' }, 'dışarıdan')),
+        h('td', { class: `note-cell${t.note ? '' : ' none'}`, title: t.note || null }, t.note),
         h('td', { class: 'row-actions' },
           h('button', { class: 'ghost', onclick: () => openForm({}, t) }, 'Düzenle'),
           h('button', { class: 'ghost danger', onclick: () => removeTx(t) }, 'Sil')));
@@ -385,7 +402,7 @@ function transactionsView() {
   return [
     h('div', { class: 'page-head' }, h('h1', null, 'İşlemler'), h('div', { class: 'actions' },
       importButton('btn', 'CSV’den aktar'),
-      h('a', { class: 'btn', href: '/api/export', download: '' }, 'CSV indir'))),
+      h('a', { class: 'btn', href: '/api/export', download: '', onclick: shareCsv }, 'CSV indir'))),
     dividendCard(),
     h('section', { class: 'card wide' },
       h('div', { class: 'filters' }, typeSelect, h('input', { type: 'search', placeholder: 'Sembol ara', 'aria-label': 'Sembol ara', value: ui.txText, oninput: (e) => {
@@ -418,7 +435,7 @@ function dividendCard() {
   };
   const draw = () => body.replaceChildren(dataTable(['Hisse', 'Hak ediş', 'Adet', 'Hisse başı', 'Net tutar', ''], list.map((d) => [
     d.symbol, f.longDate(d.date), f.qty(d.quantity), f.price(d.perShare), f.money(d.amount * (1 - rate())), h('button', { class: 'ghost', onclick: () => add([d]) }, 'Ekle'),
-  ]), 'scroll short'));
+  ]), 'scroll short stack'));
   draw();
   return h('section', { class: 'card wide' },
     h('header', { class: 'card-head' },
@@ -497,32 +514,69 @@ const isDark = () => {
   return t ? t === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
 };
 
-function renderTopbar() {
+// Çubuklar bir kez kurulur; her yenilemede yalnızca değişen parçaları güncellenir.
+const bars = (() => {
+  const link = (href, text, glyph) => h('a', { href }, glyph && icon(glyph, 22), glyph ? h('span', null, text) : text);
+  const home = [link('#/', 'Genel bakış'), link('#/', 'Genel bakış', 'home')];
+  const tx = [link('#/islemler', 'İşlemler'), link('#/islemler', 'İşlemler', 'list')];
+  const marketDot = h('i');
+  const marketText = h('span');
+  const market = h('span', { class: 'market', hidden: true, title: 'Veriler 60 saniyede bir yenilenir' }, marketDot, marketText);
+  const refresh = h('button', { class: 'icon-btn', title: 'Fiyatları yenile', 'aria-label': 'Fiyatları yenile', onclick: () => load({ force: true, spin: true }) }, icon('refresh'));
+  const theme = h('button', { class: 'icon-btn', title: 'Temayı değiştir', 'aria-label': 'Temayı değiştir', onclick: () => {
+    const next = isDark() ? 'light' : 'dark';
+    document.documentElement.dataset.theme = next;
+    store.set('theme', next);
+    renderBars();
+  } });
+  const logout = h('button', { class: 'icon-btn', title: 'Çıkış yap', 'aria-label': 'Çıkış yap', hidden: true, onclick: async () => {
+    await api.logout().catch(() => {});
+    location.replace('/login.html');
+  } }, icon('logout'));
+  const add = [
+    h('button', { class: 'btn', onclick: () => openForm({ type: 'DEPOSIT' }) }, 'Nakit ekle'),
+    h('button', { class: 'btn primary', onclick: () => openForm({ type: 'BUY' }) }, 'Hisse ekle'),
+    h('button', { class: 'tab-add', onclick: () => openForm({ type: 'BUY' }) }, icon('plus', 24), h('span', null, 'Ekle')),
+  ];
+  topbar.append(
+    h('a', { class: 'brand', href: '#/' }, h('img', { src: '/icon.svg', alt: '', width: 28, height: 28 }), h('span', null, 'Portfolio Tracker')),
+    h('nav', { 'aria-label': 'Ana menü' }, home[0], tx[0]),
+    h('div', { class: 'top-tools' }, market, refresh, theme, logout, add[0], add[1]));
+  tabbar.append(home[1], add[2], tx[1]);
+  return { home, tx, market, marketDot, marketText, refresh, theme, logout, add };
+})();
+
+function renderBars() {
   const name = route().name;
-  topbar.replaceChildren(
-    h('a', { class: 'brand', href: '#/' }, h('img', { src: '/icon.svg', alt: '', width: 28, height: 28 }), 'Portfolio Tracker'),
-    h('nav', { 'aria-label': 'Ana menü' },
-      h('a', { href: '#/', 'aria-current': name === 'home' ? 'page' : null }, 'Genel bakış'),
-      h('a', { href: '#/islemler', 'aria-current': name === 'tx' ? 'page' : null }, 'İşlemler')),
-    h('div', { class: 'top-tools' },
-      state && h('span', { class: 'market' }, h('i', { class: state.marketOpen ? 'on' : '' }), state.marketOpen ? 'Borsa açık' : 'Borsa kapalı', h('span', { class: 'muted' }, ` ${f.clock(state.asOf)}`)),
-      h('button', { class: `icon-btn${loading ? ' busy' : ''}`, title: 'Fiyatları yenile', 'aria-label': 'Fiyatları yenile', onclick: () => load(true) }, '↻'),
-      h('button', { class: 'icon-btn', title: 'Temayı değiştir', 'aria-label': 'Temayı değiştir', onclick: () => {
-        const next = isDark() ? 'light' : 'dark';
-        document.documentElement.dataset.theme = next;
-        store.set('theme', next);
-        renderTopbar();
-      } }, isDark() ? '☀' : '☾'),
-      state?.canLogout && h('button', { class: 'icon-btn', title: 'Çıkış yap', 'aria-label': 'Çıkış yap', onclick: async () => {
-        await api.logout().catch(() => {});
-        location.replace('/login.html');
-      } }, '⏻'),
-      h('button', { class: 'btn', disabled: !state, onclick: () => openForm({ type: 'DEPOSIT' }) }, 'Nakit ekle'),
-      h('button', { class: 'btn primary', disabled: !state, onclick: () => openForm({ type: 'BUY' }) }, 'Hisse ekle')));
+  for (const [links, on] of [[bars.home, name !== 'tx'], [bars.tx, name === 'tx']]) {
+    for (const a of links) on ? a.setAttribute('aria-current', 'page') : a.removeAttribute('aria-current');
+  }
+  bars.market.hidden = !state;
+  if (state) {
+    bars.marketDot.className = state.marketOpen ? 'on' : '';
+    bars.marketText.replaceChildren(h('span', { class: 'market-word' }, state.marketOpen ? 'Borsa açık ' : 'Borsa kapalı '), h('span', { class: 'muted' }, f.clock(state.asOf)));
+  }
+  bars.refresh.classList.toggle('busy', spinning);
+  bars.theme.replaceChildren(icon(isDark() ? 'sun' : 'moon'));
+  bars.logout.hidden = !state?.canLogout;
+  for (const b of bars.add) b.disabled = !state;
+}
+
+const SCROLLERS = '.table-wrap, .holdings thead';
+let renderedHash = null;
+let renderTimer;
+let deferredSince = 0;
+
+/** Kullanıcı bir alana yazarken ya da grafikte değer okurken ekran altından kaymasın. */
+function interacting() {
+  if (view.contains(document.activeElement) && document.activeElement.matches('input, select')) return true;
+  if (!view.querySelector('.tip:not([hidden])')) return false;
+  deferredSince ||= Date.now();
+  return Date.now() - deferredSince < 10_000;
 }
 
 function render(force = false) {
-  renderTopbar();
+  renderBars();
   if (!state) {
     view.replaceChildren(loadError
       ? h('div', { class: 'banner bad' }, loadError, h('button', { class: 'link', onclick: () => load() }, 'Yeniden dene'))
@@ -530,17 +584,30 @@ function render(force = false) {
     return;
   }
   // Veri değişmediyse ekrana dokunma: imleç altındaki grafik ve kaydırma konumu korunsun.
-  const { asOf, ...data } = state;
-  const key = location.hash + JSON.stringify(data) + (detail ? JSON.stringify(detail) : '') + loadError;
-  if (!force && key === renderedKey) return;
-  renderedKey = key;
-
   const r = route();
+  const { asOf, ...data } = state;
+  const shown = r.name === 'tx' ? [state.transactions, state.dividendSuggestions, state.warnings] : data;
+  const key = location.hash + JSON.stringify(shown) + (detail ? JSON.stringify(detail) : '') + loadError;
+  if (!force && key === renderedKey) return;
+  if (!force && interacting()) {
+    clearTimeout(renderTimer);
+    renderTimer = setTimeout(() => render(), 1000);
+    return;
+  }
+  deferredSince = 0;
+  const samePage = renderedHash === location.hash;
+  renderedKey = key;
+  renderedHash = location.hash;
+  const scrolls = samePage ? [...view.querySelectorAll(SCROLLERS)].map((el) => [el.scrollLeft, el.scrollTop]) : [];
+
   const body = r.name === 'tx' ? transactionsView() : r.name === 'symbol' ? symbolView(r.symbol) : overview();
   const banners = [...state.warnings, ...(loadError ? [loadError] : [])].map((w) => h('p', { class: 'banner', role: 'status' }, w));
   // Yeniden çizimde sayfa kısalıp kaydırma konumu kaybolmasın.
   view.style.minHeight = `${view.offsetHeight}px`;
   view.replaceChildren(...banners, ...body.filter(Boolean));
+  [...view.querySelectorAll(SCROLLERS)].forEach((el, i) => {
+    if (scrolls[i]) [el.scrollLeft, el.scrollTop] = scrolls[i];
+  });
   requestAnimationFrame(() => requestAnimationFrame(() => (view.style.minHeight = '')));
   document.title = r.name === 'symbol' ? `${r.symbol} · Portfolio Tracker` : r.name === 'tx' ? 'İşlemler · Portfolio Tracker' : 'Portfolio Tracker';
 }
@@ -560,10 +627,11 @@ async function loadDetail() {
 }
 
 let loadSeq = 0;
-async function load(force = false) {
+async function load({ force = false, spin = false } = {}) {
   const seq = ++loadSeq;
-  loading = true;
-  renderTopbar();
+  loadingSince = Date.now();
+  spinning = spin;
+  renderBars();
   try {
     const [next] = await Promise.all([api.state(force), loadDetail()]);
     // Daha yeni bir istek başladıysa eski yanıt ekranı geri sarmasın.
@@ -574,30 +642,51 @@ async function load(force = false) {
     if (seq !== loadSeq) return;
     loadError = e.message;
   }
-  loading = false;
+  loadingSince = 0;
+  spinning = false;
   render();
 }
 
-window.addEventListener('hashchange', async () => {
-  window.scrollTo(0, 0);
+// Hisse sayfasından dönünce genel bakışta kalınan yere gidilir.
+history.scrollRestoration = 'manual';
+let homeScroll = 0;
+window.addEventListener('scroll', () => {
+  if (renderedHash === location.hash && route().name === 'home') homeScroll = window.scrollY;
+}, { passive: true });
+
+window.addEventListener('hashchange', async (e) => {
+  const fromSymbol = e.oldURL.includes('#/hisse/');
+  const back = fromSymbol && route().name === 'home' ? homeScroll : 0;
   if (route().symbol !== detail?.symbol) detail = null;
   render(true);
   view.focus({ preventScroll: true });
+  window.scrollTo(0, back);
+  // Grafikler bir sonraki karede çizilir; sayfa boyu o zaman kesinleşir.
+  if (back) requestAnimationFrame(() => requestAnimationFrame(() => window.scrollTo(0, back)));
   if (route().name === 'symbol') {
     await loadDetail();
     render();
   }
 });
 
+const REFRESH_MS = 60_000;
+const STALLED_MS = 90_000;
 let lastPoll = Date.now();
 function poll() {
-  const wait = state?.marketOpen ? 60_000 : 10 * 60_000;
-  if (document.hidden || document.querySelector('dialog[open]') || Date.now() - lastPoll < wait) return;
-  lastPoll = Date.now();
+  const now = Date.now();
+  if (document.hidden || now - lastPoll < REFRESH_MS) return;
+  if (loadingSince && now - loadingSince < STALLED_MS) return;
+  lastPoll = now;
   load();
 }
-setInterval(poll, 15_000);
+setInterval(poll, 1000);
+// Telefon uykudan ya da başka uygulamadan dönünce beklemeden tazelenir.
 document.addEventListener('visibilitychange', poll);
+window.addEventListener('pageshow', poll);
+window.addEventListener('online', () => {
+  lastPoll = 0;
+  poll();
+});
 
 render();
-load();
+load({ spin: true });

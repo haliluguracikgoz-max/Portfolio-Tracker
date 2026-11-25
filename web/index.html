@@ -2,7 +2,14 @@
 <html lang="tr">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
+    <meta name="theme-color" content="#ffffff" />
+    <meta name="format-detection" content="telephone=no" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Portfolio" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="/icon-180.png" />
     <title>Portfolio Tracker</title>
     <link rel="icon" href="/icon.svg" type="image/svg+xml" />
     <script src="/theme.js"></script>
@@ -12,6 +19,7 @@
   <body>
     <header class="topbar" id="topbar"></header>
     <main id="view" tabindex="-1"></main>
+    <nav class="tabbar" id="tabbar" aria-label="Alt menü"></nav>
     <div id="toasts" role="status" aria-live="polite"></div>
     <noscript>Portfolio Tracker için JavaScript gereklidir.</noscript>
   </body>

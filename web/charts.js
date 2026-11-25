@@ -15,6 +15,40 @@ function responsive(className, draw) {
   return box;
 }
 
+const NARROW = 480;
+const fitHeight = (height, W) => (W < NARROW ? Math.min(height, 250) : height);
+
+// Dokunmatik ekranda ipucu parmak kalkınca kaybolmaz; başka yere dokununca ya da birkaç saniye sonra kapanır.
+const TOUCH_TIP_MS = 6000;
+let touchTip = null;
+function closeTouchTip() {
+  if (!touchTip) return;
+  clearTimeout(touchTip.timer);
+  const { hide } = touchTip;
+  touchTip = null;
+  hide();
+}
+document.addEventListener('pointerdown', (e) => {
+  if (touchTip && !touchTip.el.contains(e.target)) closeTouchTip();
+}, true);
+
+/** Fare üzerine gelince, parmak dokununca ya da sürüklenince `show(x)` çağırır. */
+function scrub(svg, show, hide) {
+  const at = (e) => {
+    show(e.clientX - svg.getBoundingClientRect().left);
+    if (e.pointerType === 'mouse') return;
+    if (touchTip && touchTip.el !== svg) closeTouchTip();
+    clearTimeout(touchTip?.timer);
+    touchTip = { el: svg, hide, timer: setTimeout(closeTouchTip, TOUCH_TIP_MS) };
+  };
+  svg.addEventListener('pointerdown', at);
+  svg.addEventListener('pointermove', at);
+  svg.addEventListener('pointercancel', () => (touchTip?.el === svg ? closeTouchTip() : hide()));
+  svg.addEventListener('pointerleave', (e) => {
+    if (e.pointerType === 'mouse') hide();
+  });
+}
+
 function niceTicks(lo, hi, count) {
   const raw = (hi - lo) / count || 1;
   const mag = 10 ** Math.floor(Math.log10(raw));
@@ -78,9 +112,10 @@ export function legend(series) {
  */
 export function lineChart({ dates, series, format, axis, height = 280, label, markers = [], zero = false, endLabel = null }) {
   return responsive('chart', (box, W) => {
-    const M = { t: 14, r: endLabel ? 74 : 16, b: 26, l: 58 };
+    const H = fitHeight(height, W);
+    const M = { t: 14, r: endLabel ? 68 : 12, b: 26, l: W < NARROW ? 50 : 58 };
     const iw = Math.max(40, W - M.l - M.r);
-    const ih = height - M.t - M.b;
+    const ih = H - M.t - M.b;
     const n = dates.length;
     const flat = series.flatMap((x) => x.values).filter((v) => v != null);
     let lo = Math.min(...flat, ...(zero ? [0] : []));
@@ -95,7 +130,7 @@ export function lineChart({ dates, series, format, axis, height = 280, label, ma
     const X = (i) => M.l + (n === 1 ? iw / 2 : (i / (n - 1)) * iw);
     const Y = (v) => M.t + (1 - (v - lo) / (hi - lo)) * ih;
 
-    const svg = s('svg', { width: W, height, role: 'img', 'aria-label': `${label}. Sol ve sağ ok tuşlarıyla gezinin.`, tabindex: 0 });
+    const svg = s('svg', { width: W, height: H, role: 'img', 'aria-label': `${label}. Sol ve sağ ok tuşlarıyla gezinin.`, tabindex: 0 });
     for (const t of ticks) {
       svg.append(
         s('line', { x1: M.l, x2: M.l + iw, y1: Y(t), y2: Y(t), class: t === 0 ? 'axis-line' : 'grid-line' }),
@@ -103,7 +138,7 @@ export function lineChart({ dates, series, format, axis, height = 280, label, ma
       );
     }
     for (const t of dateTicks(dates, iw)) {
-      svg.append(s('text', { x: X(t.i), y: height - 6, class: 'tick', 'text-anchor': 'middle' }, t.label));
+      svg.append(s('text', { x: X(t.i), y: H - 6, class: 'tick', 'text-anchor': 'middle' }, t.label));
     }
 
     // Vurgulanan seri en üstte kalsın diye sondan başa çizilir.
@@ -180,11 +215,7 @@ export function lineChart({ dates, series, format, axis, height = 280, label, ma
       tip.hide();
       current = -1;
     };
-    svg.addEventListener('pointermove', (e) => {
-      const x = e.clientX - svg.getBoundingClientRect().left;
-      show(n === 1 ? 0 : Math.round(((x - M.l) / iw) * (n - 1)));
-    });
-    svg.addEventListener('pointerleave', hide);
+    scrub(svg, (x) => show(n === 1 ? 0 : Math.round(((x - M.l) / iw) * (n - 1))), hide);
     svg.addEventListener('blur', hide);
     svg.addEventListener('keydown', (e) => {
       const move = { ArrowLeft: -1, ArrowRight: 1, PageUp: -20, PageDown: 20 }[e.key];
@@ -200,9 +231,10 @@ export function lineChart({ dates, series, format, axis, height = 280, label, ma
 /** Sıfırın üstünde ve altında sütunlar. rows: [{ label, longLabel, value }] */
 export function columnChart({ rows, format, axis, height = 220, label }) {
   return responsive('chart', (box, W) => {
-    const M = { t: 20, r: 10, b: 26, l: 58 };
+    const H = fitHeight(height, W);
+    const M = { t: 20, r: 10, b: 26, l: W < NARROW ? 50 : 58 };
     const iw = Math.max(40, W - M.l - M.r);
-    const ih = height - M.t - M.b;
+    const ih = H - M.t - M.b;
     const values = rows.map((r) => r.value);
     let lo = Math.min(0, ...values);
     let hi = Math.max(0, ...values);
@@ -213,7 +245,7 @@ export function columnChart({ rows, format, axis, height = 220, label }) {
     const band = iw / rows.length;
     const bw = Math.min(24, Math.max(2, band - 2));
 
-    const svg = s('svg', { width: W, height, role: 'group', 'aria-label': label });
+    const svg = s('svg', { width: W, height: H, role: 'group', 'aria-label': label });
     for (const t of ticks) {
       svg.append(
         s('line', { x1: M.l, x2: M.l + iw, y1: Y(t), y2: Y(t), class: t === 0 ? 'axis-line' : 'grid-line' }),
@@ -224,6 +256,16 @@ export function columnChart({ rows, format, axis, height = 220, label }) {
     const best = values.indexOf(Math.max(...values));
     const worst = values.indexOf(Math.min(...values));
     const tip = tooltipBox();
+    const cols = [];
+    const clampX = (x, half) => Math.max(half, Math.min(W - half, x));
+    const showCol = (i) => {
+      cols.forEach((c, k) => c.classList.toggle('on', k === i));
+      tip.show(M.l + band * (i + 0.5), M.t, W, rows[i].longLabel, [{ value: format(rows[i].value), label: 'getiri' }]);
+    };
+    const hideCol = () => {
+      for (const c of cols) c.classList.remove('on');
+      tip.hide();
+    };
 
     rows.forEach((r, i) => {
       const cx = M.l + band * (i + 0.5);
@@ -235,20 +277,20 @@ export function columnChart({ rows, format, axis, height = 220, label }) {
       const l = cx - bw / 2;
       const rr = cx + bw / 2;
       const d = `M${l},${y0}V${tipY - dir * rad}Q${l},${tipY} ${l + rad},${tipY}H${rr - rad}Q${rr},${tipY} ${rr},${tipY - dir * rad}V${y0}Z`;
-      const show = () => tip.show(cx, M.t, W, r.longLabel, [{ value: format(r.value), label: 'getiri' }]);
-      svg.append(
+      cols.push(
         s(
           'g',
-          { class: 'col', tabindex: 0, role: 'img', 'aria-label': `${r.longLabel}: ${format(r.value)}`, onpointerenter: show, onfocus: show, onpointerleave: () => tip.hide(), onblur: () => tip.hide() },
-          s('rect', { x: cx - band / 2, y: M.t, width: band, height: ih, fill: 'transparent' }),
+          { class: 'col', tabindex: 0, role: 'img', 'aria-label': `${r.longLabel}: ${format(r.value)}`, onfocus: () => showCol(i), onblur: hideCol },
           s('path', { d, class: r.value >= 0 ? 'fill-gain' : 'fill-loss' }),
         ),
       );
-      if (i % every === Math.floor((rows.length - 1) % every)) svg.append(s('text', { x: cx, y: height - 6, class: 'tick', 'text-anchor': 'middle' }, r.label));
+      svg.append(cols[i]);
+      if (i % every === Math.floor((rows.length - 1) % every)) svg.append(s('text', { x: clampX(cx, 20), y: H - 6, class: 'tick', 'text-anchor': 'middle' }, r.label));
       if ((i === best && r.value > 0) || (i === worst && r.value < 0)) {
-        svg.append(s('text', { x: cx, y: tipY + (dir < 0 ? -6 : 14), class: 'end-label', 'text-anchor': 'middle' }, format(r.value)));
+        svg.append(s('text', { x: clampX(cx, 26), y: tipY + (dir < 0 ? -6 : 14), class: 'end-label', 'text-anchor': 'middle' }, format(r.value)));
       }
     });
+    scrub(svg, (x) => showCol(Math.max(0, Math.min(rows.length - 1, Math.floor((x - M.l) / band)))), hideCol);
     box.replaceChildren(svg, tip.el);
   });
 }
@@ -298,9 +340,9 @@ export function treemap({ items, height, format }) {
       const { item } = t;
       const strength = Math.min(1, Math.abs(item.change) / 0.04);
       const cls = item.change >= 0 ? 'up' : 'down';
-      const big = t.w > 62 && t.h > 40;
-      const size = Math.max(12, Math.min(26, Math.sqrt(t.w * t.h) / 7));
-      const show = () => tip.show(t.x + t.w / 2, t.y + Math.min(12, t.h / 2), W, item.title, item.rows);
+      const size = Math.min(26, Math.max(11, Math.sqrt(t.w * t.h) / 7), (t.w - 8) / (item.key.length * 0.68));
+      const named = size >= 9 && t.h > 20;
+      const show = (e) => e.pointerType !== 'touch' && tip.show(t.x + t.w / 2, t.y + Math.min(12, t.h / 2), W, item.title, item.rows);
       return h(
         'a',
         {
@@ -308,7 +350,8 @@ export function treemap({ items, height, format }) {
           style: { left: `${t.x + 1}px`, top: `${t.y + 1}px`, width: `${Math.max(0, t.w - 2)}px`, height: `${Math.max(0, t.h - 2)}px`, '--k': strength.toFixed(3) },
           onpointerenter: show, onfocus: show, onpointerleave: () => tip.hide(), onblur: () => tip.hide(),
         },
-        big && [h('b', { style: { 'font-size': `${size}px` } }, item.key), h('span', null, format(item.change))],
+        named && h('b', { style: { 'font-size': `${size}px` } }, item.key),
+        named && t.w > 60 && t.h > 40 && h('span', null, format(item.change)),
       );
     });
     box.style.height = `${height}px`;

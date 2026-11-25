@@ -309,3 +309,32 @@ test('ilk kurulum: kod doğrulanana kadar erişim yok, sonra kod geçersiz', () 
   assert.equal(auth.check('yeni-parola-123', 'a'), 'ok');
   assert.ok(new Auth({ record, setupCode: newSetupCode() }).isValid(auth.cookie(true).split(';')[0]));
 });
+
+test('fiyat tazeliği: seansta hepsi, kapalıyken yalnızca endeks sık yenilenir', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-01-06T14:00:00Z') });
+  const open = Date.parse('2026-01-06T14:30:00Z') / 1000;
+  const session = (c) => {
+    c.chart.result[0].meta.currentTradingPeriod = { regular: { start: open, end: open + 6.5 * 3600 } };
+    return c;
+  };
+  const calls = [];
+  const data = { AAA: session(chart(bars)), '^GSPC': session(chart([bar('2026-01-02', 100), bar('2026-01-06', 101)], { type: 'INDEX' })) };
+  const app = new App(openDb(':memory:'), new Market(openDb(':memory:'), async (path) => {
+    const symbol = decodeURIComponent(/chart\/([^?]+)/.exec(path)?.[1] ?? '');
+    calls.push(symbol);
+    return path.includes('/search') ? { quotes: [] } : data[symbol];
+  }));
+  await app.addTx({ type: 'BUY', date: '2026-01-02', symbol: 'AAA', quantity: 1, price: 10, settle: 'EXTERNAL' });
+  await app.state();
+  const after = async (minutes) => {
+    t.mock.timers.setTime(Date.parse('2026-01-06T14:00:00Z') + minutes * 60_000);
+    calls.length = 0;
+    await app.state();
+    return calls.sort();
+  };
+  assert.deepEqual(await after(1), ['^GSPC']);
+  assert.deepEqual(await after(31), ['AAA', '^GSPC']);
+  assert.deepEqual(await after(32), ['AAA', '^GSPC']);
+  assert.deepEqual(await after(60 * 8), ['AAA', '^GSPC']);
+  assert.deepEqual(await after(60 * 8 + 1), ['^GSPC']);
+});
