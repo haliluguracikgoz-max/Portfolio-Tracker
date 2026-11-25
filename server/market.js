@@ -6,6 +6,8 @@ const BASE = 'https://query1.finance.yahoo.com';
 const HISTORY_TTL = 12 * 3600_000;
 /** Sayfa 60 saniyede bir sorar; her soruşta taze fiyat için önbellek bundan kısadır. */
 const QUOTE_TTL = 30_000;
+const GAP_RETRY = 30 * 60_000;
+const GAP_DAYS = 25;
 const KINDS = new Set(['EQUITY', 'ETF', 'MUTUALFUND']);
 // Yahoo'nun ABD borsa kodları: NASDAQ, NYSE, AMEX, Arca, Cboe ve tezgâh üstü pazarlar.
 export const US_EXCHANGES = new Set(['NMS', 'NGM', 'NCM', 'NAS', 'NYQ', 'ASE', 'PCX', 'BTS', 'CBO', 'PNK', 'OQB', 'OQX', 'OEM', 'YHD']);
@@ -67,6 +69,7 @@ export class Market {
   #inflight = new Map();
   #closes = new Map();
   #warned = new Set();
+  #filledAt = new Map();
 
   constructor(db, get = yahoo) {
     this.#db = db;
@@ -149,6 +152,7 @@ export class Market {
     const known = new Set(this.splits(symbol).map((s) => s.date));
     if (chart.splits.some((s) => !known.has(s.date))) return this.#fetchHistory(symbol, start);
     this.#store(symbol, chart, {});
+    await this.#fillFromHourly(symbol, now);
   }
 
   async #fetchHistory(symbol, from) {
@@ -166,6 +170,26 @@ export class Market {
       sector = (await this.search(symbol).catch(() => [])).find((q) => q.symbol === symbol)?.sector ?? null;
     }
     this.#store(symbol, chart, { coveredFrom: from, sector });
+    await this.#fillFromHourly(symbol, Date.now());
+  }
+
+  /** Günlük mumu hiç gelmeyen son günler, saatlik mumların gün sonu değeriyle doldurulur. Günlük mum gelince onun yerini alır. */
+  async #fillFromHourly(symbol, now) {
+    if (symbol === BENCH || now - (this.#filledAt.get(symbol) ?? -Infinity) < GAP_RETRY) return;
+    const stored = this.closes(symbol);
+    const today = this.quote(symbol)?.date;
+    const have = new Set(stored.map((c) => c.date));
+    const recent = addDays(nyDate(now), -GAP_DAYS);
+    const missing = new Set(this.bench().map((b) => b.date).filter((d) => d > recent && d > stored[0]?.date && d < today && !have.has(d)));
+    if (!missing.size) return;
+    this.#filledAt.set(symbol, now);
+    const hourly = await this.#get(`/v8/finance/chart/${encodeURIComponent(symbol)}?range=1mo&interval=60m`).catch(() => null);
+    // Gün içinde son mum kazanır.
+    const found = (parseChart(hourly)?.closes ?? []).filter((c) => missing.has(c.date));
+    const insert = this.#db.prepare('INSERT INTO prices VALUES (?, ?, ?) ON CONFLICT DO NOTHING');
+    for (const c of found) insert.run(symbol, c.date, c.close);
+    if (found.length) this.#closes.delete(symbol);
+    console.log(`${symbol}: ${missing.size} eksik günün ${found.length} tanesi saatlik veriyle dolduruldu.`);
   }
 
   /** Yanıtta bir önceki işlem günü yoksa ve kayıtlı da değilse, o günün kapanışı önceki kapanıştır. */

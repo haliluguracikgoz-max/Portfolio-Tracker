@@ -476,3 +476,32 @@ test('önceki kapanış: son mumlar boş gelirse bildirilen günlük değişim e
   assert.equal(previousClose({ regularMarketPrice: 72.88 }, 77.95), 77.95);
   assert.equal(previousClose({ regularMarketPrice: 10 }, undefined), 10);
 });
+
+test('eksik günlük mumlar: günlük değişim doğru kalır, boş günler saatlik veriyle dolar', async () => {
+  const at = (date, hour = 20) => Date.parse(`${date}T${hour}:30:00Z`) / 1000;
+  const raw = (rows, meta = {}) => ({ chart: { result: [{
+    meta: { currency: 'USD', instrumentType: 'EQUITY', regularMarketPrice: rows.at(-1)[1], regularMarketTime: at(rows.at(-1)[0]), ...meta },
+    timestamp: rows.map((r) => at(r[0], r[2])), indicators: { quote: [{ close: rows.map((r) => r[1]) }] },
+  }] } });
+  const dates = ['2026-11-18', '2026-11-19', '2026-11-20', '2026-11-23', '2026-11-24', '2026-11-25'];
+  const gap = raw([['2026-11-18', 97], ['2026-11-19', 94.4], ['2026-11-25', 72.88]], { regularMarketChangePercent: -6.504 });
+  const hourly = raw([['2026-11-20', 80, 15], ['2026-11-20', 79.3], ['2026-11-23', 87.4], ['2026-11-24', 77.9], ['2026-11-25', 72.9]]);
+  const m = new Market(openDb(':memory:'), async (path) => {
+    if (path.includes('/search')) return { quotes: [] };
+    if (path.includes('GSPC')) return raw(dates.map((d, i) => [d, 100 + i]), { instrumentType: 'INDEX' });
+    return path.includes('60m') ? hourly : gap;
+  });
+  const clock = Date.now;
+  Date.now = () => Date.parse('2026-11-25T20:40:00Z');
+  try {
+    await m.ensure('^GSPC', '2026-11-18');
+    await m.ensure('SNDK', '2026-11-18');
+  } finally {
+    Date.now = clock;
+  }
+  near(m.quote('SNDK').price / m.quote('SNDK').prevClose - 1, -0.06504);
+  const closes = m.closes('SNDK');
+  assert.deepEqual(closes.map((c) => c.date), dates);
+  assert.deepEqual(closes.slice(2, 4).map((c) => c.close), [79.3, 87.4]);
+  near(closes[4].close, 72.88 / (1 - 0.06504));
+});

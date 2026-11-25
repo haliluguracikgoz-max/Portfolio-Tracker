@@ -226,11 +226,10 @@ async function checkPriceService() {
   if (!watch) return;
   const { positions, warnings } = await app.state();
   console.log(`Portföy fiyatları: ${positions.length} pozisyon, ${warnings.length} uyarı.`);
-  for (const p of positions) {
-    const own = p.dayChange / (p.value - p.dayChange);
-    if (Math.abs(p.dayChangePct) < 0.1 && Math.abs(own - p.dayChangePct) < 0.005) continue;
-    const closes = app.market.closes(p.symbol).slice(-5).map((c) => `${c.date} ${c.close.toFixed(2)}`).join(', ');
-    console.warn(`${p.symbol}: günlük ${(p.dayChangePct * 100).toFixed(2)}%, pozisyona göre ${(own * 100).toFixed(2)}%. Son kapanışlar: ${closes}`);
+  // Büyük günlük hareket, kaynaktaki eksik günün belirtisi olabilir.
+  for (const p of positions.filter((x) => Math.abs(x.dayChangePct) >= 0.05)) {
+    const closes = app.market.closes(p.symbol).slice(-6).map((c) => `${c.date} ${c.close.toFixed(2)}`).join(', ');
+    console.log(`${p.symbol}: günlük ${(p.dayChangePct * 100).toFixed(2)}%. Son kapanışlar: ${closes}`);
   }
   for (const [list, { items, error }] of Object.entries(await watch.get())) {
     const ready = items.filter((x) => x.value != null).length;
