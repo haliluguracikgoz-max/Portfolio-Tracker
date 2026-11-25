@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="tr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>Giriş · Portfolio Tracker</title>
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <script src="/theme.js"></script>
+    <link rel="stylesheet" href="/styles.css" />
+    <script type="module" src="/login.js"></script>
+  </head>
+  <body>
+    <main class="login">
+      <form id="login">
+        <img src="/icon.svg" alt="" width="44" height="44" />
+        <h1>Portfolio Tracker</h1>
+        <input type="text" name="username" autocomplete="username" value="portfolio" hidden />
+        <div class="field">
+          <label for="password">Parola</label>
+          <input id="password" type="password" autocomplete="current-password" required autofocus />
+        </div>
+        <p class="error" id="error" role="alert" hidden></p>
+        <button class="btn primary">Giriş yap</button>
+      </form>
+    </main>
+  </body>
+</html>

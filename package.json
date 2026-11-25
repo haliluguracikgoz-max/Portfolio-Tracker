@@ -1,0 +1,13 @@
+{
+  "name": "portfolio-tracker",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Amerikan borsaları için yerel çalışan portföy takip uygulaması",
+  "engines": { "node": ">=22.13" },
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js",
+    "test": "node --test \"test/*.test.js\""
+  }
+}

@@ -1,0 +1,164 @@
+import { readFile } from 'node:fs/promises';
+import { createServer } from 'node:http';
+import { extname, join, normalize, sep } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { nyDate } from '../shared/dates.js';
+import { App, HttpError } from './app.js';
+import { Auth, MIN_PASSWORD } from './auth.js';
+import { defaultDbPath, openDb } from './db.js';
+import { Market, MarketError } from './market.js';
+
+const PORT = Number(process.env.PORT ?? 4517);
+const ROOT = fileURLToPath(new URL('..', import.meta.url));
+const MIME = {
+  '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
+  '.svg': 'image/svg+xml', '.json': 'application/json',
+};
+const CSP = "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
+
+// Barındırılan ortamda uygulama internete açıktır: parola ve kalıcı disk olmadan çalışmaz.
+const HOSTED = !!process.env.RAILWAY_ENVIRONMENT_ID;
+const PASSWORD = process.env.APP_PASSWORD ?? '';
+const setupProblems = [];
+if (HOSTED && PASSWORD.length < MIN_PASSWORD) {
+  setupProblems.push(`Railway'de bu servisin Variables bölümüne en az ${MIN_PASSWORD} karakterlik bir APP_PASSWORD ekleyin.`);
+}
+if (HOSTED && !process.env.RAILWAY_VOLUME_MOUNT_PATH) {
+  setupProblems.push('Bu servise bir Volume bağlayın. Aksi hâlde her deploy’da veriler silinir.');
+}
+
+const auth = new Auth(PASSWORD);
+let app = null;
+if (!setupProblems.length) {
+  const dbPath = defaultDbPath();
+  const db = openDb(dbPath);
+  app = new App(db, new Market(db));
+  console.log(`Veritabanı: ${dbPath}`);
+}
+
+function send(res, status, body, type = 'application/json; charset=utf-8', headers = {}) {
+  res.writeHead(status, {
+    'Content-Type': type, 'Cache-Control': 'no-cache', 'X-Content-Type-Options': 'nosniff',
+    'Content-Security-Policy': CSP, 'Referrer-Policy': 'no-referrer',
+    ...(HOSTED && { 'Strict-Transport-Security': 'max-age=31536000' }), ...headers,
+  });
+  res.end(body);
+}
+const json = (res, data, status = 200, headers) => send(res, status, JSON.stringify(data), undefined, headers);
+
+async function readJson(req) {
+  // JSON zorunluluğu, başka sitelerin sıradan form gönderimlerini engeller.
+  if (!/^application\/json\b/.test(req.headers['content-type'] ?? '')) throw new HttpError(415, 'JSON bekleniyor.');
+  const chunks = [];
+  let size = 0;
+  for await (const c of req) {
+    size += c.length;
+    if (size > 5_000_000) throw new HttpError(413, 'Dosya çok büyük.');
+    chunks.push(c);
+  }
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+  } catch {
+    throw new HttpError(400, 'Geçersiz JSON.');
+  }
+}
+
+/** Başka sitelerden gelen istekler ve (yerelde) DNS rebinding reddedilir. */
+function assertSameOrigin(req) {
+  const { host, origin } = req.headers;
+  if (!HOSTED && ![`localhost:${PORT}`, `127.0.0.1:${PORT}`].includes(host)) throw new HttpError(403, 'Erişim reddedildi.');
+  if (origin && origin !== `${HOSTED ? 'https' : 'http'}://${host}`) throw new HttpError(403, 'Erişim reddedildi.');
+}
+
+async function login(req, res) {
+  const { password } = await readJson(req);
+  const ip = (HOSTED && req.headers['x-real-ip']) || req.socket.remoteAddress;
+  const result = auth.check(password, ip);
+  if (result === 'ok') return json(res, { ok: true }, 200, { 'Set-Cookie': auth.cookie(HOSTED) });
+  if (result === 'blocked') throw new HttpError(429, 'Çok fazla hatalı deneme. 15 dakika sonra tekrar deneyin.');
+  throw new HttpError(401, 'Parola hatalı.');
+}
+
+async function handleApi(req, res, url) {
+  const route = `${req.method} ${url.pathname}`;
+  if (auth.enabled) {
+    if (route === 'POST /api/login') return login(req, res);
+    if (route === 'POST /api/logout') return json(res, { ok: true }, 200, { 'Set-Cookie': auth.clearCookie() });
+    if (!auth.isValid(req.headers.cookie)) throw new HttpError(401, 'Oturum açın.');
+  }
+  switch (route) {
+    case 'GET /api/state':
+      return json(res, { ...(await app.state(url.searchParams.get('refresh') === '1')), canLogout: auth.enabled });
+    case 'GET /api/search':
+      return json(res, await app.search(url.searchParams.get('q')));
+    case 'GET /api/price':
+      return json(res, await app.priceOn(url.searchParams.get('symbol'), url.searchParams.get('date')));
+    case 'GET /api/symbol':
+      return json(res, await app.symbolDetail(url.searchParams.get('symbol')));
+    case 'GET /api/export':
+      return send(res, 200, app.exportCsv(), 'text/csv; charset=utf-8', {
+        'Content-Disposition': `attachment; filename="portfolio-${nyDate()}.csv"`,
+      });
+    case 'POST /api/import':
+      return json(res, await app.importCsv((await readJson(req)).csv));
+    case 'POST /api/transactions':
+      return json(res, await app.addTx(await readJson(req)), 201);
+  }
+  const m = /^\/api\/transactions\/(\d+)$/.exec(url.pathname);
+  if (m && req.method === 'PUT') return json(res, await app.updateTx(Number(m[1]), await readJson(req)));
+  if (m && req.method === 'DELETE') return json(res, app.removeTx(Number(m[1])));
+  throw new HttpError(404, 'Bulunamadı.');
+}
+
+async function handleStatic(res, pathname) {
+  const rel = pathname.startsWith('/shared/') ? pathname : `/web${pathname === '/' ? '/index.html' : pathname}`;
+  let path;
+  try {
+    path = normalize(join(ROOT, decodeURIComponent(rel)));
+  } catch {
+    throw new HttpError(400, 'Geçersiz adres.');
+  }
+  const inside = ['web', 'shared'].some((d) => path.startsWith(join(ROOT, d) + sep));
+  const type = MIME[extname(path)];
+  if (!inside || !type) throw new HttpError(404, 'Bulunamadı.');
+  let body;
+  try {
+    body = await readFile(path);
+  } catch {
+    throw new HttpError(404, 'Bulunamadı.');
+  }
+  send(res, 200, body, type);
+}
+
+const server = createServer(async (req, res) => {
+  try {
+    const url = new URL(req.url, 'http://x');
+    if (url.pathname === '/healthz') return json(res, { ok: true });
+    if (setupProblems.length) {
+      const text = ['Portfolio Tracker henüz kurulmadı.', '', ...setupProblems.map((p) => `• ${p}`)].join('\n');
+      return send(res, 503, text, 'text/plain; charset=utf-8');
+    }
+    assertSameOrigin(req);
+    if (url.pathname.startsWith('/api/')) await handleApi(req, res, url);
+    else if (req.method === 'GET') await handleStatic(res, url.pathname);
+    else throw new HttpError(405, 'Desteklenmiyor.');
+  } catch (e) {
+    const status = e instanceof HttpError ? e.status : e instanceof MarketError ? 502 : 500;
+    if (status === 500) console.error(e);
+    json(res, { error: status === 500 ? 'Beklenmeyen bir hata oluştu.' : e.message }, status);
+  }
+});
+
+server.on('error', (e) => {
+  if (e.code === 'EADDRINUSE') {
+    console.error(`${PORT} portu kullanımda. Uygulama zaten açık olabilir: http://localhost:${PORT}`);
+    process.exit(1);
+  }
+  throw e;
+});
+// Yerelde yalnızca bu bilgisayardan erişilir.
+server.listen(PORT, HOSTED ? '::' : '127.0.0.1', () => {
+  console.log(`Portfolio Tracker: http://localhost:${PORT}`);
+  for (const p of setupProblems) console.error(p);
+});
+for (const signal of ['SIGTERM', 'SIGINT']) process.on(signal, () => process.exit(0));

@@ -1,0 +1,12 @@
+node_modules/
+dist/
+*.log
+.env*
+# Kişisel portföy verisi asla repoya girmez
+data/
+*.db
+*.db-*
+*.sqlite*
+portfolio-*.csv
+.claude/
+.vite/
