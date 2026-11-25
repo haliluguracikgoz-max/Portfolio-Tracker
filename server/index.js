@@ -6,6 +6,7 @@ import { addDays, nyDate } from '../shared/dates.js';
 import { App, HttpError } from './app.js';
 import { Auth, hashPassword, MAX_PASSWORD, MIN_PASSWORD, newSetupCode } from './auth.js';
 import { defaultDbPath, getSetting, openDb, setSetting } from './db.js';
+import { Macro } from './macro.js';
 import { BENCH, Market, MarketError } from './market.js';
 
 const PORT = Number(process.env.PORT ?? 4517);
@@ -30,6 +31,7 @@ if (HOSTED && !process.env.RAILWAY_VOLUME_MOUNT_PATH) {
 let auth = null;
 let db = null;
 let app = null;
+const macro = new Macro();
 if (!setupProblems.length) {
   const dbPath = defaultDbPath();
   db = openDb(dbPath);
@@ -112,6 +114,8 @@ async function handleApi(req, res, url) {
   switch (route) {
     case 'GET /api/state':
       return json(res, { ...(await app.state(url.searchParams.get('refresh') === '1')), canLogout: auth.enabled });
+    case 'GET /api/macro':
+      return json(res, await macro.get({ force: url.searchParams.get('refresh') === '1' }));
     case 'GET /api/search':
       return json(res, await app.search(url.searchParams.get('q')));
     case 'GET /api/price':
@@ -196,5 +200,8 @@ async function checkPriceService() {
   } catch (e) {
     console.error(`Fiyat servisi kontrolü başarısız: ${e.message}`);
   }
+  const { items, error } = await macro.get();
+  if (error) console.error(`Makro servisi kontrolü başarısız: ${error}`);
+  else console.log(`Makro servisi çalışıyor: ${items.filter((x) => x.value != null).length}/${items.length} gösterge.`);
 }
 for (const signal of ['SIGTERM', 'SIGINT']) process.on(signal, () => process.exit(0));

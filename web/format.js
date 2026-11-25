@@ -16,6 +16,11 @@ export const pct = (v) => (v < -0.00005 ? MINUS : '') + '%' + n2.format(Math.abs
 export const pct1 = (v) => '%' + n1.format(v * 100);
 export const signedPct = (v) => signOf(v, (v * 100).toFixed(2)) + '%' + n2.format(Math.abs(v * 100));
 
+/** Makro göstergeler: faiz yüzde, petrol dolar, endeksler puan. */
+const n3 = num(3, 3);
+export const macroValue = (x) => (x.unit === 'yield' ? `%${n3.format(x.value)}` : (x.unit === 'usd' ? '$' : '') + n2.format(x.value));
+export const macroChange = (x) => (x.unit === 'yield' ? `${signOf(x.change, (x.change * 100).toFixed(1))}${n1.format(Math.abs(x.change * 100))} bp` : signedPct(x.changePct));
+
 /** Eksen için kısa tutar; adım küçükse ondalık gösterir. */
 export function axisMoney(v, step = 1) {
   const a = Math.abs(v);

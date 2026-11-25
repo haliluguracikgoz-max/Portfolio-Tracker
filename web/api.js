@@ -21,6 +21,7 @@ async function request(path, method = 'GET', body) {
 const q = encodeURIComponent;
 export const api = {
   state: (force) => request(`/api/state${force ? '?refresh=1' : ''}`),
+  macro: (force) => request(`/api/macro${force ? '?refresh=1' : ''}`),
   search: (text) => request(`/api/search?q=${q(text)}`),
   price: (symbol, date) => request(`/api/price?symbol=${q(symbol)}&date=${q(date)}`),
   symbol: (symbol) => request(`/api/symbol?symbol=${q(symbol)}`),

@@ -6,6 +6,7 @@ import { Auth, hashPassword, newSetupCode } from '../server/auth.js';
 import { fromCsv, toCsv } from '../server/csv.js';
 import { openDb } from '../server/db.js';
 import { LedgerError, validateLedger } from '../server/ledger.js';
+import { Macro, parseMacro } from '../server/macro.js';
 import { Market, normalizeSymbol, parseChart } from '../server/market.js';
 import { addMonths, isDate, nyDate } from '../shared/dates.js';
 import { parseNumber } from '../shared/number.js';
@@ -337,4 +338,45 @@ test('fiyat tazeliği: seansta hepsi, kapalıyken yalnızca endeks sık yenileni
   assert.deepEqual(await after(32), ['AAA', '^GSPC']);
   assert.deepEqual(await after(60 * 8), ['AAA', '^GSPC']);
   assert.deepEqual(await after(60 * 8 + 1), ['^GSPC']);
+});
+
+const macroJson = (over = {}) => ({ FormattedQuoteResult: { FormattedQuote: [
+  { symbol: '@CL.1', last: '83.61', previous_day_closing: '82.05', realTime: 'false', last_time: '2026-11-25T13:21:49.000-0500' },
+  { symbol: 'US10Y', last: '4.836%', previous_day_closing: '4.902%', change_pct: '+1.3%', realTime: 'true', ...over },
+] } });
+
+test('makro: yüzde işareti ayıklanır, değişim önceki kapanıştan hesaplanır', () => {
+  const by = Object.fromEntries(parseMacro(macroJson()).map((x) => [x.symbol, x]));
+  assert.equal(Object.keys(by).length, 6);
+  near(by.CL.changePct, 83.61 / 82.05 - 1);
+  assert.equal(by.CL.delayed, true);
+  assert.equal(by.CL.time, Date.parse('2026-11-25T18:21:49Z'));
+  near(by.US10YT.value, 4.836);
+  near(by.US10YT.change, -0.066);
+  assert.equal(by.VIX.value, null);
+});
+
+test('makro: 30 saniye önbellek, hata ve eksik veride son değer korunur', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: 1_000_000 });
+  let calls = 0;
+  let next = () => macroJson();
+  const macro = new Macro(async () => {
+    calls++;
+    return next();
+  });
+  const ten = (r) => r.items.find((x) => x.symbol === 'US10YT').value;
+  await Promise.all([macro.get(), macro.get()]);
+  await macro.get();
+  assert.equal(calls, 1);
+
+  t.mock.timers.setTime(1_060_000);
+  next = () => macroJson({ last: 'UNCH' });
+  assert.equal(ten(await macro.get()), 4.836);
+
+  t.mock.timers.setTime(1_120_000);
+  next = () => ({});
+  const r = await macro.get();
+  assert.equal(ten(r), 4.836);
+  assert.match(r.error, /boş yanıt/);
+  assert.equal(r.asOf, 1_060_000);
 });
