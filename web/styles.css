@@ -150,6 +150,8 @@ main > .side .watch-remove { position: absolute; top: -7px; right: -5px; border:
   .shell .watch-remove { grid-area: 1 / 3 / 3 / 4; align-self: center; }
   /* İki yan panel varken orta alan dar kalırsa tablolar sığacak kadar sadeleşir. */
   @container (max-width: 1080px) {
+    .holdings .c-c .ext i { display: none; }
+    .holdings .ext-pct { display: block; }
     .holdings thead th, .holdings tbody td, .holdings tbody th { padding-inline: 5px; }
     .holdings thead th:nth-child(2), .holdings .c-spark { display: none; }
     .holdings tbody th span { max-width: 130px; }
@@ -196,7 +198,12 @@ main > .side .watch-remove { position: absolute; top: -7px; right: -5px; border:
 .ext.gain { color: var(--gain-ink); }
 .ext.loss { color: var(--loss-ink); }
 .ext i { font-style: normal; }
-.holdings .ext i { display: none; }
+.ext-pct { display: none; }
+/* Sütunlar sıkışıkken seans dışı yüzde, günlük değişimin altına geçer. */
+@media (min-width: 961px) and (max-width: 1260px) {
+  .holdings .c-c .ext i { display: none; }
+  .holdings .ext-pct { display: block; }
+}
 .hero-ext { margin-top: 2px; }
 .hero-ext .ext { display: inline; font-size: 16px; }
 .watch li .ext { grid-column: 1 / -1; }
@@ -408,7 +415,8 @@ input::placeholder { color: var(--ink-3); }
   main > .side .sector .watch-name { font-size: 13px; font-weight: 620; }
   main > .side .sector .watch-symbol { display: block; font-size: 11px; }
   main > .side .watch-value { margin-top: 0; font-size: 15px; }
-  main > .side .ext i { display: none; }
+  main > .side .ext { font-size: 11px; white-space: normal; }
+  main > .side .ext i { display: inline-block; margin-left: 3px; white-space: nowrap; }
   .watch-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 8px max(16px, env(safe-area-inset-right)) 20px max(16px, env(safe-area-inset-left)); }
   .watch-results li { grid-template-columns: minmax(0, 1fr) auto; gap: 0 12px; }
   .watch-results small { grid-area: 2 / 1; text-align: left; }
@@ -502,6 +510,11 @@ input::placeholder { color: var(--ink-3); }
   .compact .holdings .c-day { grid-column: 3; font-size: 14px; }
   .compact .holdings .c-value { grid-column: 4; font-size: 14px; }
   .compact .holdings .c-c::before { display: none; }
+  /* Dar satırda seans dışı yüzde, günlük değişimin altında durur. */
+  .compact .holdings .c-c .ext i { display: none; }
+  .compact .holdings .ext-pct { display: block; text-align: right; }
+  .holdings .c-c .ext { white-space: normal; }
+  .holdings .c-c .ext i { white-space: nowrap; }
   .compact .holdings tbody th span, .compact .holdings .c-spark, .compact .holdings .c-a, .compact .holdings .c-b, .compact .holdings .c-d, .compact .holdings tr.cash-row .row-actions { display: none; }
 
   .tx tbody tr { grid-template-columns: auto auto minmax(0, 1fr) auto; gap: 4px 14px; align-items: center; }

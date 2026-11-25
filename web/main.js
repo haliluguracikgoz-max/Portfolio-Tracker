@@ -236,7 +236,7 @@ function holdingsCard() {
           h('td', { class: 'num c-a', 'data-label': 'Adet' }, f.qty(p.quantity)),
           h('td', { class: 'num c-b', 'data-label': 'Maliyet' }, f.price(p.avgCost)),
           h('td', { class: 'num c-c', 'data-label': 'Fiyat' }, f.price(p.price), extPrice(p.ext, f.price)),
-          h('td', { class: 'num c-day' }, delta(p.dayChangePct, f.signedPct(p.dayChangePct)), h('small', null, f.signedMoney(p.dayChange))),
+          h('td', { class: 'num c-day' }, delta(p.dayChangePct, f.signedPct(p.dayChangePct)), p.ext && h('span', { class: `ext ext-pct ${f.tone(p.ext.pct)}` }, `(${f.signedPct(p.ext.pct)})`), h('small', null, f.signedMoney(p.dayChange))),
           h('td', { class: 'num strong c-value' }, f.money(p.value)),
           h('td', { class: 'num c-weight' }, f.pct1(p.weight)),
           h('td', { class: 'num c-d', 'data-label': 'Kâr / zarar' }, delta(p.unrealized, f.signedMoney(p.unrealized)), h('small', null, f.signedPct(p.unrealizedPct))),
