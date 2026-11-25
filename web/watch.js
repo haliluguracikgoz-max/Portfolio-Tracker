@@ -4,15 +4,20 @@ import * as f from './format.js';
 import { icon } from './icons.js';
 
 const LISTS = {
-  macro: { title: 'Makro Göstergeler', add: 'Makro göstergelere ekle', hint: 'Endeks, emtia, faiz, döviz, kripto, hisse ya da ETF arayın.', placeholder: 'altın, bitcoin, USDTRY, US5Y…' },
-  etf: { title: 'ETFs', add: 'ETF ekle', hint: 'ABD borsalarındaki ETF’leri sembol ya da adla arayın.', placeholder: 'VOO, semiconductor…' },
+  stocks: { title: 'Takip Edilen Hisseler', add: 'Takip listesine ekle', hint: 'ABD borsalarındaki hisse ve ETF’leri sembol ya da adla arayın.', placeholder: 'NVDA, Tesla, VOO…', side: 'left', tickers: true },
+  macro: { title: 'Makro Göstergeler', add: 'Makro göstergelere ekle', hint: 'Endeks, emtia, faiz, döviz, kripto, hisse ya da ETF arayın.', placeholder: 'altın, bitcoin, USDTRY, US5Y…', side: 'right' },
+  etf: { title: 'ETFs', add: 'ETF ekle', hint: 'ABD borsalarındaki ETF’leri sembol ya da adla arayın.', placeholder: 'VOO, semiconductor…', side: 'right', tickers: true },
 };
 
-/** Piyasa panelleri. Yeniden çizilen sayfadan bağımsız, kalıcı bir kutudur. */
+/** Piyasa panelleri. Yeniden çizilen sayfadan bağımsız, kalıcı kutulardır. */
 export function createWatch({ toast }) {
-  const box = h('aside', { class: 'side', 'aria-label': 'Piyasa verileri' });
-  const sections = Object.fromEntries(Object.keys(LISTS).map((key) => [key, h('section', { class: `watch ${key}`, 'aria-labelledby': `watch-${key}` })]));
-  box.append(...Object.values(sections));
+  const left = h('aside', { class: 'side left', 'aria-label': 'Takip listesi' });
+  const right = h('aside', { class: 'side right', 'aria-label': 'Piyasa verileri' });
+  const sections = {};
+  for (const [key, { side, tickers }] of Object.entries(LISTS)) {
+    sections[key] = h('section', { class: `watch ${key}${tickers ? ' tickers' : ''}`, 'aria-labelledby': `watch-${key}` });
+    (side === 'left' ? left : right).append(sections[key]);
+  }
   const removing = new Set();
   let data = null;
   let failed = false;
@@ -69,12 +74,12 @@ export function createWatch({ toast }) {
           } }, editing ? 'Bitti' : 'Çıkar'))),
       items.length
         ? h('ul', null, items.map((x) => h('li', null,
-          h('span', { class: 'watch-name', title: x.name }, list === 'etf' ? h('a', { href: `#/hisse/${x.symbol}` }, x.name) : x.name),
+          h('span', { class: 'watch-name', title: x.name }, LISTS[list].tickers ? h('a', { href: `#/hisse/${x.symbol}` }, x.name) : x.name),
           h('span', { class: 'watch-symbol' }, x.symbol, x.delayed && h('span', { title: 'Yaklaşık 10 dakika gecikmeli' }, ' · gecikmeli')),
           h('span', { class: 'watch-value' }, x.value == null ? '–' : f.watchValue(x)),
           h('span', { class: 'watch-change' }, change(x)),
           editing && h('button', { class: 'watch-remove', 'data-key': x.id, 'aria-label': `${x.name}: çıkar`, onclick: () => remove(list, x) }, icon('close', 16)))))
-        : h('p', { class: 'muted watch-empty' }, data ? 'Liste boş. “Ekle” ile başlayın.' : failed ? 'Veriler alınamadı. Yeniden denenecek.' : 'Yükleniyor…'),
+        : h('p', { class: 'muted watch-empty' }, data ? (list === 'stocks' ? 'Henüz hisse yok. “Ekle” ile izlemek istediğiniz hisse ve ETF’leri ekleyin.' : 'Liste boş. “Ekle” ile başlayın.') : failed ? 'Veriler alınamadı. Yeniden denenecek.' : 'Yükleniyor…'),
       items.length > 0 && data[list].asOf && h('p', { class: `watch-foot${bad ? ' bad' : ''}` }, bad ? `Güncellenemedi. Son veri ${f.clock(data[list].asOf)}` : f.clock(data[list].asOf)),
     ].filter(Boolean));
     if (focused) [...section.querySelectorAll('[data-key]')].find((el) => el.dataset.key === focused)?.focus({ preventScroll: true });
@@ -143,7 +148,7 @@ export function createWatch({ toast }) {
         const found = await api.watchSearch(list, text);
         if (mine !== token) return;
         results.replaceChildren(...found.map(row));
-        status.textContent = found.length ? '' : list === 'etf' ? 'ETF bulunamadı. Sembolü ya da İngilizce adı deneyin.' : 'Sonuç bulunamadı. Sembolü ya da İngilizce adı deneyin.';
+        status.textContent = found.length ? '' : `${{ etf: 'ETF', stocks: 'Hisse ya da ETF' }[list] ?? 'Sonuç'} bulunamadı. Sembolü ya da İngilizce adı deneyin.`;
       } catch (e) {
         if (mine !== token) return;
         results.replaceChildren();
@@ -189,5 +194,5 @@ export function createWatch({ toast }) {
   }
 
   render();
-  return { box, load };
+  return { left, right, load };
 }

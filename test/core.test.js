@@ -376,7 +376,7 @@ function makeWatch(over = {}) {
     }
     if (path.includes('/chart/')) {
       const symbol = decodeURIComponent(/chart\/([^?]+)/.exec(path)[1]);
-      return kinds[symbol] ? { chart: { result: [{ meta: { symbol, currency: 'USD', instrumentType: kinds[symbol], longName: `${symbol} adı` } }] } } : null;
+      return kinds[symbol] ? { chart: { result: [{ meta: { symbol, currency: 'USD', instrumentType: kinds[symbol], exchangeName: symbol === 'AAPL' ? 'NMS' : 'PCX', longName: `${symbol} adı` } }] } } : null;
     }
     calls.yahoo++;
     return src.spark();
@@ -417,13 +417,18 @@ test('piyasa paneli: ekle, çıkar, geri al; liste kalıcıdır', async () => {
   const added = await watch.add('etf', 'yahoo:VOO');
   assert.deepEqual(added.etf.items.at(-1), { id: 'yahoo:VOO', symbol: 'VOO', name: 'VOO adı', unit: 'usd', value: 650, change: 10, changePct: 650 / 640 - 1, delayed: false });
   await assert.rejects(watch.add('etf', 'yahoo:VOO'), /zaten listede/);
-  await assert.rejects(watch.add('etf', 'yahoo:AAPL'), /yalnızca ETF/);
+  await assert.rejects(watch.add('etf', 'yahoo:AAPL'), /ETF’ler eklenebilir/);
   await assert.rejects(watch.add('etf', 'yahoo:YOK'), /bulunamadı/);
   await assert.rejects(watch.add('macro', 'yahoo:../x?y'), /Geçersiz sembol/);
   await assert.rejects(watch.add('__proto__', 'yahoo:VOO'), /Geçersiz liste/);
   assert.equal((await watch.add('macro', 'yahoo:GC=F')).macro.items.at(-1).unit, 'usd');
   assert.equal((await watch.add('macro', 'cnbc:US5Y')).macro.items.at(-1).unit, 'yield');
   assert.equal((await watch.add('macro', 'yahoo:AAPL')).macro.items.length, 9);
+
+  assert.deepEqual(idsOf((await watch.get()).stocks), []);
+  await watch.add('stocks', 'yahoo:AAPL');
+  assert.deepEqual(idsOf((await watch.add('stocks', 'yahoo:VOO')).stocks), ['yahoo:AAPL', 'yahoo:VOO']);
+  await assert.rejects(watch.add('stocks', 'yahoo:GC=F'), /hisse ve ETF/);
 
   const entry = DEFAULTS.etf[1];
   assert.ok(!idsOf(watch.remove('etf', entry.id).etf).includes(entry.id));
@@ -442,6 +447,7 @@ test('piyasa paneli: arama ETF listesinde yalnızca ABD ETF’lerini, makroda he
   const { watch } = makeWatch();
   assert.deepEqual((await watch.search('etf', 'voo')).map((x) => x.id), ['yahoo:VOO']);
   assert.deepEqual((await watch.search('macro', 'altın')).map((x) => x.id), ['cnbc:US5Y', 'yahoo:VOO', 'yahoo:VOO.MX', 'yahoo:AAPL']);
+  assert.deepEqual((await watch.search('stocks', 'a')).map((x) => x.id), ['yahoo:VOO', 'yahoo:AAPL']);
   await watch.add('etf', 'yahoo:VOO');
   assert.equal((await watch.search('etf', 'voo'))[0].added, true);
   assert.deepEqual(await watch.search('etf', '  '), []);

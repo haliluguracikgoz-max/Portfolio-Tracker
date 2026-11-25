@@ -129,10 +129,18 @@ const stat = (label, value, extra) => h('div', { class: 'stat' }, h('span', { cl
 
 // ---------------------------------------------------------------- Genel bakış
 
-// Geniş ekranda sağdaki boşlukta, dar ekranda genel bakışın içinde durur.
+// Piyasa panelleri geniş ekranda iki yanda, dar ekranda genel bakışın içinde durur.
 const wideScreen = matchMedia('(min-width: 1440px)');
 wideScreen.addEventListener('change', () => render(true));
 const watch = createWatch({ toast });
+
+/** Yan paneller, sayfanın ilk kartıyla (genel bakışta Varlıklar) aynı hizadan başlar. */
+function alignPanels() {
+  const card = wideScreen.matches && state && view.querySelector(':scope > .card');
+  const top = card ? card.getBoundingClientRect().top - view.getBoundingClientRect().top : 28;
+  shell.style.setProperty('--side-top', `${Math.max(0, top - 28)}px`);
+}
+new ResizeObserver(alignPanels).observe(view);
 
 function emptyState() {
   return h('section', { class: 'empty' },
@@ -145,8 +153,8 @@ function emptyState() {
 }
 
 function overview() {
-  const watchInline = !wideScreen.matches && watch.box;
-  if (!state.transactions.length) return [emptyState(), watchInline];
+  const watchInline = wideScreen.matches ? [] : [watch.left, watch.right];
+  if (!state.transactions.length) return [emptyState(), ...watchInline];
   const { summary: m, history, positions } = state;
   const r = sliceRange(history, state.base, ui.range);
   const rangeTitle = RANGES.find((x) => x.key === ui.range).title;
@@ -175,7 +183,7 @@ function overview() {
         stat('Temettü ve faiz', f.money(m.dividends + m.interest), null),
         stat('Yıllık getiri (XIRR)', m.xirr == null ? '–' : f.signedPct(m.xirr), m.xirr == null ? '1 yıl dolunca' : 'para ağırlıklı'))),
 
-    watchInline,
+    ...watchInline,
 
     // Dönem seçimi varlıkları etkilemez; etkilediği grafiklerin hemen üstünde durur.
     positions.length > 0 && holdingsCard(),
@@ -252,7 +260,7 @@ function holdingsCard() {
             h('button', { class: 'ghost', 'aria-label': `${p.symbol} sat`, onclick: () => openForm({ type: 'SELL', symbol: p.symbol }) }, 'Sat')))),
         h('tr', { class: 'cash-row' },
           h('th', { scope: 'row' }, h('b', null, 'Nakit'), h('span', null, 'ABD doları')),
-          h('td', { class: 'c-gap', colspan: 5 }), h('td', { class: 'num strong c-value' }, f.money(state.summary.cash)),
+          h('td', { class: 'c-gap c-spark' }), h('td', { class: 'c-gap', colspan: 4 }), h('td', { class: 'num strong c-value' }, f.money(state.summary.cash)),
           h('td', { class: 'num c-weight' }, state.summary.value > 0 ? f.pct1(state.summary.cash / state.summary.value) : '–'), h('td', { class: 'c-gap' }),
           h('td', { class: 'row-actions' },
             h('button', { class: 'ghost', onclick: () => openForm({ type: 'DEPOSIT' }) }, 'Ekle'),
@@ -589,7 +597,10 @@ function interacting() {
 
 function render(force = false) {
   renderBars();
-  if (wideScreen.matches && watch.box.parentNode !== shell) shell.append(watch.box);
+  if (wideScreen.matches && watch.left.parentNode !== shell) {
+    shell.prepend(watch.left);
+    shell.append(watch.right);
+  }
   if (!state) {
     view.replaceChildren(loadError
       ? h('div', { class: 'banner bad' }, loadError, h('button', { class: 'link', onclick: () => load() }, 'Yeniden dene'))
@@ -618,6 +629,7 @@ function render(force = false) {
   // Yeniden çizimde sayfa kısalıp kaydırma konumu kaybolmasın.
   view.style.minHeight = `${view.offsetHeight}px`;
   view.replaceChildren(...banners, ...body.filter(Boolean));
+  alignPanels();
   [...view.querySelectorAll(SCROLLERS)].forEach((el, i) => {
     if (scrolls[i]) [el.scrollLeft, el.scrollTop] = scrolls[i];
   });

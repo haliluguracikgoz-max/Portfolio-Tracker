@@ -1,9 +1,9 @@
 import { HttpError } from './app.js';
 import { getSetting, setSetting } from './db.js';
-import { MarketError, US_EXCHANGES, yahoo } from './market.js';
+import { MarketError, normalizeSymbol, US_EXCHANGES, yahoo } from './market.js';
 
 const TTL = 30_000;
-const MAX_ITEMS = 30;
+const MAX_ITEMS = 50;
 const YAHOO_BATCH = 20;
 const CNBC_QUOTE = 'https://quote.cnbc.com/quote-html-webservice/restQuote/symbolType/symbol';
 const CNBC_SEARCH = 'https://symlookup.cnbc.com/symservice/symlookup.do';
@@ -11,6 +11,7 @@ const CNBC_SEARCH = 'https://symlookup.cnbc.com/symservice/symlookup.do';
 const item = (id, symbol, name, unit) => ({ id, symbol, name, unit });
 /** id: "sağlayıcı:kod". unit: yield (yüzde faiz), usd ya da plain. */
 export const DEFAULTS = {
+  stocks: [],
   macro: [
     item('cnbc:@CL.1', 'CL', 'Crude Oil WTI', 'usd'),
     item('cnbc:US2Y', 'US2YT', 'U.S. 2Y', 'yield'),
@@ -28,6 +29,14 @@ export const DEFAULTS = {
     item('yahoo:QQQ', 'QQQ', 'Invesco QQQ Trust', 'usd'),
   ],
 };
+
+/** Yalnızca ABD borsalarında işlem gören bu türleri kabul eden listeler. */
+const US_ONLY = {
+  stocks: { kinds: ['EQUITY', 'ETF'], error: 'Bu listeye yalnızca ABD borsalarındaki hisse ve ETF’ler eklenebilir.' },
+  etf: { kinds: ['ETF'], error: 'Bu listeye yalnızca ABD borsalarındaki ETF’ler eklenebilir.' },
+};
+const inScope = (list, symbol, kind, exchange) =>
+  !US_ONLY[list] || (US_ONLY[list].kinds.includes(kind) && US_EXCHANGES.has(exchange) && normalizeSymbol(symbol) === symbol);
 
 const KIND_LABEL = {
   EQUITY: 'Hisse', ETF: 'ETF', INDEX: 'Endeks', FUTURE: 'Vadeli', CURRENCY: 'Döviz', CRYPTOCURRENCY: 'Kripto', MUTUALFUND: 'Fon', BOND: 'Tahvil',
@@ -137,12 +146,12 @@ export class Watch {
         error: used.find((p) => p.error)?.error ?? null,
       };
     };
-    return { macro: view('macro'), etf: view('etf') };
+    return Object.fromEntries(Object.keys(DEFAULTS).map((list) => [list, view(list)]));
   }
 
   async #refresh() {
     this.#triedAt = Date.now();
-    const ids = [...new Set([...this.#items('macro'), ...this.#items('etf')].map((x) => x.id))];
+    const ids = [...new Set(Object.keys(DEFAULTS).flatMap((list) => this.#items(list)).map((x) => x.id))];
     const codes = (provider) => ids.map(splitId).filter(([p]) => p === provider).map(([, code]) => code);
     const run = async (provider, fetchQuotes) => {
       const wanted = codes(provider);
@@ -182,7 +191,7 @@ export class Watch {
     const fromYahoo = async () => {
       const json = await this.#yahoo(`/v1/finance/search?q=${encodeURIComponent(query)}&quotesCount=16&newsCount=0`);
       return (json?.quotes ?? [])
-        .filter((x) => (list === 'etf' ? x.quoteType === 'ETF' && US_EXCHANGES.has(x.exchange) : KIND_LABEL[x.quoteType]))
+        .filter((x) => KIND_LABEL[x.quoteType] && inScope(list, x.symbol, x.quoteType, x.exchange))
         .map((x) => ({ id: `yahoo:${x.symbol}`, symbol: x.symbol, name: x.longname ?? x.shortname ?? x.symbol, kind: KIND_LABEL[x.quoteType], exchange: x.exchDisp ?? '' }));
     };
     // Tahvil faizleri ve bazı endeksler yalnızca CNBC'de bulunur.
@@ -194,7 +203,7 @@ export class Watch {
         .map((x) => ({ id: `cnbc:${x.symbolName}`, symbol: String(x.symbolName).replace(/^[.@]/, ''), name: x.companyName ?? x.symbolName, kind: KIND_LABEL[x.issueType], exchange: 'CNBC' }));
     };
     const [a, b] = await Promise.allSettled([fromYahoo(), fromCnbc()]);
-    if (a.status === 'rejected' && (b.status === 'rejected' || list === 'etf')) throw a.reason;
+    if (a.status === 'rejected' && (b.status === 'rejected' || US_ONLY[list])) throw a.reason;
     const y = (a.value ?? []).filter((x) => validId(x.id)).slice(0, 8);
     const seen = new Set(y.map((x) => letters(x.symbol)));
     const c = (b.value ?? []).filter((x) => validId(x.id) && !seen.has(letters(x.symbol))).slice(0, 5);
@@ -217,7 +226,7 @@ export class Watch {
     const [provider, code] = splitId(clean);
     const info = provider === 'yahoo' ? await this.#yahooInfo(code) : (await this.#cnbcQuotes([code])).get(code);
     if (!info) throw new HttpError(404, `“${code}” için veri bulunamadı.`);
-    if (list === 'etf' && info.kind !== 'ETF') throw new HttpError(422, 'Bu listeye yalnızca ETF eklenebilir.');
+    if (!inScope(list, code, info.kind, info.exchange)) throw new HttpError(422, US_ONLY[list].error);
     if (info.value != null) this.#remember(clean, info);
     this.#providers[provider].asOf ||= Date.now();
     const entry = known ?? item(clean, code.replace(/^[.@]/, ''), String(info.name ?? code).slice(0, 80), info.unit);
@@ -232,7 +241,7 @@ export class Watch {
     if (meta?.symbol !== code || !quotes.has(code)) return null;
     const kind = meta.instrumentType;
     const usd = meta.currency === 'USD' && kind !== 'CURRENCY' && kind !== 'INDEX';
-    return { ...quotes.get(code), kind, name: meta.longName ?? meta.shortName ?? code, unit: YIELD_INDEXES.has(code) ? 'yield' : usd ? 'usd' : 'plain' };
+    return { ...quotes.get(code), kind, exchange: meta.exchangeName, name: meta.longName ?? meta.shortName ?? code, unit: YIELD_INDEXES.has(code) ? 'yield' : usd ? 'usd' : 'plain' };
   }
 
   remove(list, id) {
