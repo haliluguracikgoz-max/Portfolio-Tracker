@@ -9,7 +9,7 @@ Amerikan borsalarındaki hisse ve fonlar için kişisel portföy takip uygulamas
 - **Grafikler:** günün ısı haritası, hisse/sektör dağılımı, kazancın kaynağı, aylık getiriler, hisse fiyatı üzerinde alış/satış noktaları. Her grafiğin tablo görünümü vardır.
 - **Otomatik:** canlı fiyat, hisse bölünmesi düzeltmesi, kaydedilmemiş temettü önerileri.
 - **Canlı:** veriler sayfa açıkken 60 saniyede bir yenilenir.
-- **Piyasa panelleri:** Takip Edilen Hisseler, Diğer Takip Edilenler, Makro Göstergeler ve ETFs. Hepsine arayıp ekleme ve çıkarma yapılabilir; listeler sunucuda saklanır. Kaynak Yahoo Finance ve CNBC'nin resmî olmayan servisleri; vadeli kontratlar yaklaşık 10 dakika gecikmeli.
+- **Piyasa panelleri:** Takip Edilen Hisseler, Diğer Takip Edilenler, Makro Göstergeler, ETFs ve Diğer Sektör ETF’leri. Hepsine arayıp ekleme ve çıkarma yapılabilir; listeler sunucuda saklanır. Kaynak Yahoo Finance ve CNBC'nin resmî olmayan servisleri; vadeli kontratlar yaklaşık 10 dakika gecikmeli.
 - **Mobil:** iPhone ve Android'e uygun düzen; ana ekrana eklenip uygulama gibi açılabilir.
 - Koyu (varsayılan) ve açık tema, Türkçe arayüz.
 

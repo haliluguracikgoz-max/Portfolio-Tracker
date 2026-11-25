@@ -395,6 +395,8 @@ input::placeholder { color: var(--ink-3); }
   /* Dar kutuda hisse ve ETF, uzun adı yerine sembolüyle tanınır. */
   main > .side .tickers .watch-name { grid-row: 2; font-size: 11px; font-weight: 400; color: var(--ink-3); }
   main > .side .tickers .watch-symbol { display: block; grid-row: 1; font-size: 13px; font-weight: 620; color: var(--ink); }
+  main > .side .sector .watch-name { font-size: 13px; font-weight: 620; }
+  main > .side .sector .watch-symbol { display: block; font-size: 11px; }
   main > .side .watch-value { margin-top: 0; font-size: 15px; }
   .watch-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 8px max(16px, env(safe-area-inset-right)) 20px max(16px, env(safe-area-inset-left)); }
   .watch-results li { grid-template-columns: minmax(0, 1fr) auto; gap: 0 12px; }

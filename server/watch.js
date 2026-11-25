@@ -39,6 +39,20 @@ export const DEFAULTS = {
     item('yahoo:SOXX', 'SOXX', 'iShares Semiconductor', 'usd'),
     item('yahoo:QQQ', 'QQQ', 'Invesco QQQ Trust', 'usd'),
   ],
+  // Select Sector SPDR ailesi: S&P 500'ün 11 sektörü. Ad yerine sektör yazılır.
+  sector: [
+    item('yahoo:XLK', 'XLK', 'Teknoloji', 'usd'),
+    item('yahoo:XLF', 'XLF', 'Finans', 'usd'),
+    item('yahoo:XLC', 'XLC', 'İletişim', 'usd'),
+    item('yahoo:XLY', 'XLY', 'Döngüsel tüketim', 'usd'),
+    item('yahoo:XLV', 'XLV', 'Sağlık', 'usd'),
+    item('yahoo:XLI', 'XLI', 'Sanayi', 'usd'),
+    item('yahoo:XLP', 'XLP', 'Temel tüketim', 'usd'),
+    item('yahoo:XLE', 'XLE', 'Enerji', 'usd'),
+    item('yahoo:XLU', 'XLU', 'Kamu hizmetleri', 'usd'),
+    item('yahoo:XLRE', 'XLRE', 'Gayrimenkul', 'usd'),
+    item('yahoo:XLB', 'XLB', 'Temel malzemeler', 'usd'),
+  ],
 };
 
 /** Genel bakışın üstündeki sabit endeksler; liste gibi düzenlenmez. CNBC'de gecikmesizdir. */
@@ -48,7 +62,11 @@ export const INDEXES = [
   item('cnbc:.NDX', 'NDX', 'Nasdaq 100', 'plain'),
 ];
 
-const known = (id) => Object.values(DEFAULTS).flat().find((x) => x.id === id);
+/** Hazır ad ve birim. Sektör adları yalnızca kendi listesinde geçerlidir. */
+const known = (id, list) => {
+  const { sector, ...shared } = DEFAULTS;
+  return (list === 'sector' ? sector : Object.values(shared).flat()).find((x) => x.id === id);
+};
 
 /** Gram altın hiçbir serviste yok: ons fiyatından (dolar) ve gerekirse dolar kurundan hesaplanır. */
 const OUNCE_GRAMS = 31.1034768;
@@ -62,6 +80,7 @@ const GOLD_QUERY = /^(alt[ıi]n|gram|gold|ons|xau|gau)/;
 const US_ONLY = {
   stocks: { kinds: ['EQUITY', 'ETF'], error: 'Bu listeye yalnızca ABD borsalarındaki hisse ve ETF’ler eklenebilir.' },
   etf: { kinds: ['ETF'], error: 'Bu listeye yalnızca ABD borsalarındaki ETF’ler eklenebilir.' },
+  sector: { kinds: ['ETF'], error: 'Bu listeye yalnızca ABD borsalarındaki ETF’ler eklenebilir.' },
 };
 const inScope = (list, symbol, kind, exchange) =>
   !US_ONLY[list] || (US_ONLY[list].kinds.includes(kind) && US_EXCHANGES.has(exchange) && normalizeSymbol(symbol) === symbol);
@@ -226,7 +245,7 @@ export class Watch {
     const lower = text.toLocaleLowerCase('tr');
     const query = US_ONLY[list] ? text : (TURKISH[lower] ?? text);
     const gold = !US_ONLY[list] && GOLD_QUERY.test(lower)
-      ? GOLD.map(known).map((x) => ({ id: x.id, symbol: x.name, name: x.symbol, kind: 'Altın', exchange: x.id.startsWith('calc:') ? 'Hesaplanan' : 'CNBC' })) : [];
+      ? GOLD.map((id) => known(id)).map((x) => ({ id: x.id, symbol: x.name, name: x.symbol, kind: 'Altın', exchange: x.id.startsWith('calc:') ? 'Hesaplanan' : 'CNBC' })) : [];
     const fromYahoo = async () => {
       const json = await this.#yahoo(`/v1/finance/search?q=${encodeURIComponent(query)}&quotesCount=16&newsCount=0`);
       return (json?.quotes ?? [])
@@ -272,7 +291,7 @@ export class Watch {
     if (!inScope(list, code, info.kind, info.exchange)) throw new HttpError(422, US_ONLY[list].error);
     if (info.value != null) this.#remember(clean, info);
     this.#providers[provider].asOf ||= Date.now();
-    const entry = known(clean) ?? item(clean, code.replace(/^[.@]/, ''), String(info.name ?? code).slice(0, 80), info.unit);
+    const entry = known(clean, list) ?? item(clean, code.replace(/^[.@]/, ''), String(info.name ?? code).slice(0, 80), info.unit);
     // Veri beklenirken liste değişmiş olabilir.
     this.#save(list, [...check(), entry]);
     return this.#snapshot();

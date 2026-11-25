@@ -354,7 +354,7 @@ function makeWatch(over = {}) {
     cnbc: () => cnbcJson(),
     ...over,
   };
-  const kinds = { VOO: 'ETF', 'GC=F': 'FUTURE', AAPL: 'EQUITY' };
+  const kinds = { VOO: 'ETF', XLK: 'ETF', 'GC=F': 'FUTURE', AAPL: 'EQUITY' };
   const getYahoo = async (path) => {
     if (path.includes('/search')) {
       return { quotes: [
@@ -384,7 +384,8 @@ test('piyasa paneli: 30 saniye önbellek; bir kaynak kesilince diğeri çalış�
   const { watch, calls, src } = makeWatch();
   await Promise.all([watch.get(), watch.get()]);
   const first = await watch.get();
-  assert.deepEqual(calls, { yahoo: 1, cnbc: 1 });
+  // Yahoo tek istekte 20 kod kabul eder; hazır listelerde 22 kod var.
+  assert.deepEqual(calls, { yahoo: 2, cnbc: 1 });
   assert.deepEqual([first.macro.items.length, first.etf.items.length], [6, 6]);
   assert.equal(first.etf.items.find((x) => x.symbol === 'QQQ').value, 630);
 
@@ -515,4 +516,15 @@ test('piyasa paneli: üst endeksler her zaman gelir, düzenlenemez', async () =>
   near(items[0].changePct, 7190.41 / 7201.09 - 1);
   assert.equal(items[1].changePct, null);
   assert.throws(() => watch.remove('index', 'cnbc:.SPX'), /Geçersiz liste/);
+});
+
+test('piyasa paneli: sektör ETF listesi hazır gelir, sektör adı yalnızca orada kullanılır', async () => {
+  const { watch, src } = makeWatch();
+  assert.deepEqual(idsOf((await watch.get()).sector).map((id) => id.slice(6)).sort(), ['XLB', 'XLC', 'XLE', 'XLF', 'XLI', 'XLK', 'XLP', 'XLRE', 'XLU', 'XLV', 'XLY']);
+  await assert.rejects(watch.add('sector', 'yahoo:AAPL'), /ETF’ler eklenebilir/);
+  assert.equal((await watch.add('sector', 'yahoo:VOO')).sector.items.at(-1).name, 'VOO adı');
+  src.spark = () => spark({ XLK: [155, 157] });
+  watch.remove('sector', 'yahoo:XLK');
+  assert.equal((await watch.add('sector', 'yahoo:XLK')).sector.items.at(-1).name, 'Teknoloji');
+  assert.equal((await watch.add('etf', 'yahoo:XLK')).etf.items.at(-1).name, 'XLK adı');
 });

@@ -8,7 +8,11 @@ const LISTS = {
   other: { title: 'Diğer Takip Edilenler', add: 'Takip edilenlere ekle', hint: 'Döviz, altın, kripto, emtia, endeks, hisse ya da ETF arayın.', placeholder: 'USDTRY, gram altın, ethereum…', side: 'left' },
   macro: { title: 'Makro Göstergeler', add: 'Makro göstergelere ekle', hint: 'Endeks, emtia, faiz, döviz, kripto, hisse ya da ETF arayın.', placeholder: 'altın, bitcoin, USDTRY, US5Y…', side: 'right' },
   etf: { title: 'ETFs', add: 'ETF ekle', hint: 'ABD borsalarındaki ETF’leri sembol ya da adla arayın.', placeholder: 'VOO, semiconductor…', side: 'right', tickers: true },
+  sector: { title: 'Diğer Sektör ETF’leri', add: 'Sektör ETF’si ekle', hint: 'ABD borsalarındaki ETF’leri sembol ya da adla arayın.', placeholder: 'XLK, semiconductor…', side: 'right', symbolFirst: true },
 };
+
+/** Satırın koyu yazılan adı; sektör listesinde sembol öndedir, altında sektör yazar. */
+const heading = (list, x) => (LISTS[list].symbolFirst ? x.symbol : x.name);
 
 /** Piyasa panelleri. Yeniden çizilen sayfadan bağımsız, kalıcı kutulardır. */
 export function createWatch({ toast }) {
@@ -45,7 +49,7 @@ export function createWatch({ toast }) {
     const index = data[list].items.findIndex((x) => x.id === entry.id);
     try {
       apply(await api.watchRemove(list, entry.id));
-      toast(`${entry.name} çıkarıldı.`, { action: 'Geri al', onAction: async () => {
+      toast(`${heading(list, entry)} çıkarıldı.`, { action: 'Geri al', onAction: async () => {
         try {
           apply(await api.watchRestore(list, entry, index));
         } catch (e) {
@@ -84,11 +88,11 @@ export function createWatch({ toast }) {
           } }, editing ? 'Bitti' : 'Çıkar'))),
       items.length
         ? h('ul', null, items.map((x) => h('li', null,
-          h('span', { class: 'watch-name', title: x.name }, LISTS[list].tickers ? h('a', { href: `#/hisse/${x.symbol}` }, x.name) : x.name),
-          h('span', { class: 'watch-symbol' }, x.symbol, x.delayed && h('span', { title: 'Yaklaşık 10 dakika gecikmeli' }, ' · gecikmeli')),
+          h('span', { class: 'watch-name', title: heading(list, x) }, LISTS[list].tickers || LISTS[list].symbolFirst ? h('a', { href: `#/hisse/${x.symbol}` }, heading(list, x)) : x.name),
+          h('span', { class: 'watch-symbol' }, LISTS[list].symbolFirst ? x.name : x.symbol, x.delayed && h('span', { title: 'Yaklaşık 10 dakika gecikmeli' }, ' · gecikmeli')),
           h('span', { class: 'watch-value' }, x.value == null ? '–' : f.watchValue(x)),
           h('span', { class: 'watch-change' }, change(x)),
-          editing && h('button', { class: 'watch-remove', 'data-key': x.id, 'aria-label': `${x.name}: çıkar`, onclick: () => remove(list, x) }, icon('close', 16)))))
+          editing && h('button', { class: 'watch-remove', 'data-key': x.id, 'aria-label': `${heading(list, x)}: çıkar`, onclick: () => remove(list, x) }, icon('close', 16)))))
         : h('p', { class: 'muted watch-empty' }, data ? (list === 'stocks' ? 'Henüz hisse yok. “Ekle” ile izlemek istediğiniz hisse ve ETF’leri ekleyin.' : 'Liste boş. “Ekle” ile başlayın.') : failed ? 'Veriler alınamadı. Yeniden denenecek.' : 'Yükleniyor…'),
       items.length > 0 && data[list].asOf && h('p', { class: `watch-foot${bad ? ' bad' : ''}` }, bad ? `Güncellenemedi. Son veri ${f.clock(data[list].asOf)}` : f.clock(data[list].asOf)),
     ].filter(Boolean));
@@ -170,7 +174,7 @@ export function createWatch({ toast }) {
         const found = await api.watchSearch(list, text);
         if (mine !== token) return;
         results.replaceChildren(...found.map(row));
-        status.textContent = found.length ? '' : `${{ etf: 'ETF', stocks: 'Hisse ya da ETF' }[list] ?? 'Sonuç'} bulunamadı. Sembolü ya da İngilizce adı deneyin.`;
+        status.textContent = found.length ? '' : `${{ etf: 'ETF', sector: 'ETF', stocks: 'Hisse ya da ETF' }[list] ?? 'Sonuç'} bulunamadı. Sembolü ya da İngilizce adı deneyin.`;
       } catch (e) {
         if (mine !== token) return;
         results.replaceChildren();
