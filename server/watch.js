@@ -41,6 +41,13 @@ export const DEFAULTS = {
   ],
 };
 
+/** Genel bakışın üstündeki sabit endeksler; liste gibi düzenlenmez. CNBC'de gecikmesizdir. */
+export const INDEXES = [
+  item('cnbc:.SPX', 'SPX', 'S&P 500', 'plain'),
+  item('cnbc:.IXIC', 'IXIC', 'Nasdaq', 'plain'),
+  item('cnbc:.NDX', 'NDX', 'Nasdaq 100', 'plain'),
+];
+
 const known = (id) => Object.values(DEFAULTS).flat().find((x) => x.id === id);
 
 /** Gram altın hiçbir serviste yok: ons fiyatından (dolar) ve gerekirse dolar kurundan hesaplanır. */
@@ -158,8 +165,7 @@ export class Watch {
   }
 
   #snapshot() {
-    const view = (list) => {
-      const items = this.#items(list);
+    const view = (items) => {
       const used = [...new Set(items.flatMap((x) => partsOf(x.id)).map((id) => splitId(id)[0]))].map((p) => this.#providers[p]);
       return {
         items: items.map((x) => ({ ...x, value: null, change: null, changePct: null, delayed: false, ...this.#quote(x.id) })),
@@ -167,7 +173,7 @@ export class Watch {
         error: used.find((p) => p.error)?.error ?? null,
       };
     };
-    return Object.fromEntries(Object.keys(DEFAULTS).map((list) => [list, view(list)]));
+    return { ...Object.fromEntries(Object.keys(DEFAULTS).map((list) => [list, view(this.#items(list))])), index: view(INDEXES) };
   }
 
   #quote(id) {
@@ -181,7 +187,7 @@ export class Watch {
 
   async #refresh() {
     this.#triedAt = Date.now();
-    const ids = [...new Set(Object.keys(DEFAULTS).flatMap((list) => this.#items(list)).flatMap((x) => partsOf(x.id)))];
+    const ids = [...new Set([...INDEXES, ...Object.keys(DEFAULTS).flatMap((list) => this.#items(list))].flatMap((x) => partsOf(x.id)))];
     const codes = (provider) => ids.map(splitId).filter(([p]) => p === provider).map(([, code]) => code);
     const run = async (provider, fetchQuotes) => {
       const wanted = codes(provider);

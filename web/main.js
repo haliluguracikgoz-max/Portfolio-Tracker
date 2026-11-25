@@ -171,11 +171,8 @@ function overview() {
         h('p', { class: 'hero-value' }, f.money(m.value)),
         h('p', { class: 'hero-day' }, delta(m.dayChange, `${f.signedMoney(m.dayChange)} (${f.signedPct(m.dayChangePct)})`), h('span', { class: 'muted' }, ` ${f.longDate(state.lastTradingDate)}`))),
       h('div', { class: 'stats' },
-        stat('Toplam kazanç', f.signedMoney(m.totalGain), m.contributed > 0 ? delta(m.totalGain, f.signedPct(m.totalGain / m.contributed)) : null),
         stat('Nakit', f.money(m.cash), m.value > 0 ? `${f.pct1(m.cash / m.value)} pay` : null),
-        stat('Gerçekleşen kazanç', f.signedMoney(m.realized), 'satışlardan'),
-        stat('Temettü ve faiz', f.money(m.dividends + m.interest), null),
-        stat('Yıllık getiri (XIRR)', m.xirr == null ? '–' : f.signedPct(m.xirr), m.xirr == null ? '1 yıl dolunca' : 'para ağırlıklı'))),
+        watch.indexes)),
 
     positions.length > 0 && holdingsCard(),
     ...watchInline,

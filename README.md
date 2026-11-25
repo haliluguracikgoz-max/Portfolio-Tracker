@@ -41,7 +41,6 @@ Parola ilk açılışta uygulamanın içinde belirlenir. Bunun için sunucu logl
 
 - **Maliyet:** satışlarda FIFO; alış komisyonu maliyete eklenir, satış komisyonu gelirden düşülür.
 - **Getiri (TWR):** para giriş çıkışından arındırılmış, zaman ağırlıklı. Girişler gün başında, çıkışlar gün sonunda sayılır.
-- **XIRR:** para ağırlıklı yıllık getiri; portföy bir yılı doldurunca gösterilir.
 - **S&P 500:** fiyat endeksi (temettüsüz).
 - **Adet ve fiyat:** işlem günündeki gerçek değerler girilir; sonraki bölünmeler otomatik uygulanır.
 

@@ -505,3 +505,14 @@ test('eksik günlük mumlar: günlük değişim doğru kalır, boş günler saat
   assert.deepEqual(closes.slice(2, 4).map((c) => c.close), [79.3, 87.4]);
   near(closes[4].close, 72.88 / (1 - 0.06504));
 });
+
+test('piyasa paneli: üst endeksler her zaman gelir, düzenlenemez', async () => {
+  const { watch } = makeWatch({
+    cnbc: () => ({ FormattedQuoteResult: { FormattedQuote: [{ symbol: '.SPX', last: '7,190.41', previous_day_closing: '7,201.09', realTime: 'true' }] } }),
+  });
+  const { items } = (await watch.get()).index;
+  assert.deepEqual(items.map((x) => x.name), ['S&P 500', 'Nasdaq', 'Nasdaq 100']);
+  near(items[0].changePct, 7190.41 / 7201.09 - 1);
+  assert.equal(items[1].changePct, null);
+  assert.throws(() => watch.remove('index', 'cnbc:.SPX'), /Geçersiz liste/);
+});

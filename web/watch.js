@@ -14,6 +14,7 @@ const LISTS = {
 export function createWatch({ toast }) {
   const left = h('aside', { class: 'side left', 'aria-label': 'Takip listesi' });
   const right = h('aside', { class: 'side right', 'aria-label': 'Piyasa verileri' });
+  const indexes = ['S&P 500', 'Nasdaq', 'Nasdaq 100'].map((name) => h('div', { class: 'stat' }, h('span', { class: 'label' }, `${name} günlük`), h('span', { class: 'value' }, '–'), h('span', { class: 'note' })));
   const sections = {};
   for (const [key, { side, tickers }] of Object.entries(LISTS)) {
     sections[key] = h('section', { class: `watch ${key}${tickers ? ' tickers' : ''}`, 'aria-labelledby': `watch-${key}` });
@@ -94,7 +95,19 @@ export function createWatch({ toast }) {
     if (focused) [...section.querySelectorAll('[data-key]')].find((el) => el.dataset.key === focused)?.focus({ preventScroll: true });
   }
 
+  function renderIndexes() {
+    if (!data) return;
+    const { items, asOf, error } = data.index;
+    indexes.forEach((el, i) => {
+      const x = items[i];
+      const [, value, note] = el.children;
+      value.replaceChildren(x.changePct == null ? '–' : change(x));
+      note.textContent = (failed || error) && asOf ? `Son veri ${f.clock(asOf)}` : x.value == null ? '' : f.watchValue(x);
+    });
+  }
+
   function render() {
+    renderIndexes();
     for (const list of Object.keys(LISTS)) renderList(list);
   }
 
@@ -203,5 +216,5 @@ export function createWatch({ toast }) {
   }
 
   render();
-  return { left, right, load };
+  return { left, right, indexes, load };
 }
