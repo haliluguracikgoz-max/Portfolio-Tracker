@@ -6,7 +6,7 @@ import { Auth, hashPassword, newSetupCode } from '../server/auth.js';
 import { fromCsv, toCsv } from '../server/csv.js';
 import { openDb } from '../server/db.js';
 import { LedgerError, validateLedger } from '../server/ledger.js';
-import { Market, normalizeSymbol, parseChart } from '../server/market.js';
+import { Market, normalizeSymbol, parseChart, previousClose } from '../server/market.js';
 import { DEFAULTS, parseCnbc, parseSpark, Watch } from '../server/watch.js';
 import { addMonths, isDate, nyDate } from '../shared/dates.js';
 import { parseNumber } from '../shared/number.js';
@@ -468,4 +468,11 @@ test('piyasa paneli: toplu aktarım bir kez uygulanır, var olanı korur', async
   assert.equal(again().importOnce(text), null);
   assert.deepEqual(idsOf((await again().get()).stocks), ['yahoo:AAPL', 'yahoo:NVDA']);
   assert.throws(() => watch.importOnce('{"macro":{}}'), /aktarım yapılamaz/);
+});
+
+test('önceki kapanış: son mumlar boş gelirse bildirilen günlük değişim esas alınır', () => {
+  near(previousClose({ regularMarketPrice: 72.88, regularMarketChangePercent: -6.504 }, 94.395), 72.88 / (1 - 0.06504));
+  assert.equal(previousClose({ regularMarketPrice: 72.88, regularMarketChangePercent: -6.504 }, 77.95), 77.95);
+  assert.equal(previousClose({ regularMarketPrice: 72.88 }, 77.95), 77.95);
+  assert.equal(previousClose({ regularMarketPrice: 10 }, undefined), 10);
 });

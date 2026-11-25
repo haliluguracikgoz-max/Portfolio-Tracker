@@ -48,11 +48,25 @@ export function parseChart(json) {
   return { meta: r.meta, closes: [...closes].map(([date, close]) => ({ date, close })), splits, dividends };
 }
 
+/**
+ * Önceki kapanış. Yahoo'nun günlük mumlarında son günler bazen boş gelir ya da bölünmeye göre
+ * düzeltilmemiş olur; o zaman son mum yanıltır. Yahoo'nun bildirdiği günlük değişim esas alınır.
+ */
+export function previousClose(meta, barClose) {
+  const price = meta.regularMarketPrice;
+  const pct = meta.regularMarketChangePercent;
+  if (!(price > 0) || !Number.isFinite(pct) || pct <= -100) return barClose ?? price ?? null;
+  const reported = price / (1 + pct / 100);
+  // Bildirilen yüzde yuvarlanmıştır; mumla örtüşüyorsa mumun tam değeri kullanılır.
+  return barClose > 0 && Math.abs(barClose / reported - 1) < 5e-4 ? barClose : reported;
+}
+
 export class Market {
   #db;
   #get;
   #inflight = new Map();
   #closes = new Map();
+  #warned = new Set();
 
   constructor(db, get = yahoo) {
     this.#db = db;
@@ -154,11 +168,27 @@ export class Market {
     this.#store(symbol, chart, { coveredFrom: from, sector });
   }
 
+  /** Yanıtta bir önceki işlem günü yoksa ve kayıtlı da değilse, o günün kapanışı önceki kapanıştır. */
+  #fillGap(symbol, closes, quoteDate, prev, barClose) {
+    const have = new Set(closes.map((c) => c.date));
+    const missing = this.bench().map((b) => b.date).filter((d) => closes.length && d > closes[0].date && d < quoteDate && !have.has(d));
+    const key = `${symbol}|${quoteDate}|${missing.join()}`;
+    if ((missing.length || (barClose && prev && Math.abs(barClose / prev - 1) > 5e-3)) && !this.#warned.has(key)) {
+      this.#warned.add(key);
+      console.warn(`${symbol}: kaynak verisi tutarsız. Eksik günler: ${missing.slice(-5).join(', ') || 'yok'}; son mum ${barClose}, önceki kapanış ${prev}`);
+    }
+    const last = this.bench().map((b) => b.date).filter((d) => d < quoteDate).at(-1);
+    if (!last || !prev || have.has(last) || this.closes(symbol).some((c) => c.date === last)) return [];
+    return [{ date: last, close: prev }];
+  }
+
   #store(symbol, chart, { coveredFrom, sector }) {
     const { meta, closes } = chart;
     const now = Date.now();
     const quoteDate = meta.regularMarketTime ? nyDate(meta.regularMarketTime * 1000) : (closes.at(-1)?.date ?? nyDate());
-    const prev = closes.filter((c) => c.date < quoteDate).at(-1)?.close ?? meta.regularMarketPrice;
+    const barClose = closes.filter((c) => c.date < quoteDate).at(-1)?.close;
+    const prev = previousClose(meta, barClose);
+    const filled = symbol === BENCH ? [] : this.#fillGap(symbol, closes, quoteDate, prev, barClose);
     const session = meta.currentTradingPeriod?.regular;
     const quote = [meta.regularMarketPrice ?? null, prev ?? null, quoteDate, meta.regularMarketTime ?? null, session?.start ?? null, session?.end ?? null];
 
@@ -180,7 +210,7 @@ export class Market {
           .run(now, ...quote, symbol);
       }
       const price = this.#db.prepare('INSERT INTO prices VALUES (?, ?, ?) ON CONFLICT DO UPDATE SET close = excluded.close');
-      for (const c of closes) price.run(symbol, c.date, c.close);
+      for (const c of [...closes, ...filled]) price.run(symbol, c.date, c.close);
       const split = this.#db.prepare('INSERT INTO splits VALUES (?, ?, ?) ON CONFLICT DO UPDATE SET ratio = excluded.ratio');
       for (const s of chart.splits) split.run(symbol, s.date, s.ratio);
       const div = this.#db.prepare('INSERT INTO dividends VALUES (?, ?, ?) ON CONFLICT DO UPDATE SET per_share = excluded.per_share');
