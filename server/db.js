@@ -28,6 +28,7 @@ const SCHEMA = `
     note TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   );
+  CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
   CREATE TABLE IF NOT EXISTS symbols (
     symbol TEXT PRIMARY KEY,
     name TEXT NOT NULL,
@@ -77,6 +78,14 @@ export function transaction(db, fn) {
     db.exec('ROLLBACK');
     throw e;
   }
+}
+
+export function getSetting(db, key) {
+  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
+  return row ? JSON.parse(row.value) : null;
+}
+export function setSetting(db, key, value) {
+  db.prepare('INSERT INTO settings VALUES (?, ?) ON CONFLICT DO UPDATE SET value = excluded.value').run(key, JSON.stringify(value));
 }
 
 const TX_COLUMNS = 'id, date, type, symbol, quantity, price, amount, fee, settle, note';

@@ -4,8 +4,8 @@ import { extname, join, normalize, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { addDays, nyDate } from '../shared/dates.js';
 import { App, HttpError } from './app.js';
-import { Auth, MIN_PASSWORD } from './auth.js';
-import { defaultDbPath, openDb } from './db.js';
+import { Auth, hashPassword, MAX_PASSWORD, MIN_PASSWORD, newSetupCode } from './auth.js';
+import { defaultDbPath, getSetting, openDb, setSetting } from './db.js';
 import { BENCH, Market, MarketError } from './market.js';
 
 const PORT = Number(process.env.PORT ?? 4517);
@@ -16,24 +16,28 @@ const MIME = {
 };
 const CSP = "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 
-// Barındırılan ortamda uygulama internete açıktır: parola ve kalıcı disk olmadan çalışmaz.
+// Barındırılan ortamda uygulama internete açıktır: parola ve kalıcı disk olmadan veri göstermez.
 const HOSTED = !!process.env.RAILWAY_ENVIRONMENT_ID;
 const PASSWORD = process.env.APP_PASSWORD ?? '';
 const setupProblems = [];
-if (HOSTED && PASSWORD.length < MIN_PASSWORD) {
-  setupProblems.push(`Railway'de bu servisin Variables bölümüne en az ${MIN_PASSWORD} karakterlik bir APP_PASSWORD ekleyin.`);
+if (HOSTED && PASSWORD && PASSWORD.length < MIN_PASSWORD) {
+  setupProblems.push(`APP_PASSWORD en az ${MIN_PASSWORD} karakter olmalı.`);
 }
 if (HOSTED && !process.env.RAILWAY_VOLUME_MOUNT_PATH) {
   setupProblems.push('Bu servise bir Volume bağlayın. Aksi hâlde her deploy’da veriler silinir.');
 }
 
-const auth = new Auth(PASSWORD);
+let auth = null;
+let db = null;
 let app = null;
 if (!setupProblems.length) {
   const dbPath = defaultDbPath();
-  const db = openDb(dbPath);
+  db = openDb(dbPath);
   app = new App(db, new Market(db));
   console.log(`Veritabanı: ${dbPath}`);
+  const setupCode = HOSTED ? newSetupCode() : null;
+  auth = new Auth({ password: PASSWORD, record: getSetting(db, 'password'), setupCode });
+  if (auth.needsSetup) console.log(`İlk kurulum kodu: ${setupCode}`);
 }
 
 function send(res, status, body, type = 'application/json; charset=utf-8', headers = {}) {
@@ -70,18 +74,37 @@ function assertSameOrigin(req) {
   if (origin && origin !== `${HOSTED ? 'https' : 'http'}://${host}`) throw new HttpError(403, 'Erişim reddedildi.');
 }
 
+const clientIp = (req) => (HOSTED && req.headers['x-real-ip']) || req.socket.remoteAddress;
+
+function assertAttempt(result, message) {
+  if (result === 'blocked') throw new HttpError(429, 'Çok fazla hatalı deneme. 15 dakika sonra tekrar deneyin.');
+  if (result !== 'ok') throw new HttpError(401, message);
+}
+
 async function login(req, res) {
   const { password } = await readJson(req);
-  const ip = (HOSTED && req.headers['x-real-ip']) || req.socket.remoteAddress;
-  const result = auth.check(password, ip);
-  if (result === 'ok') return json(res, { ok: true }, 200, { 'Set-Cookie': auth.cookie(HOSTED) });
-  if (result === 'blocked') throw new HttpError(429, 'Çok fazla hatalı deneme. 15 dakika sonra tekrar deneyin.');
-  throw new HttpError(401, 'Parola hatalı.');
+  assertAttempt(auth.check(password, clientIp(req)), 'Parola hatalı.');
+  json(res, { ok: true }, 200, { 'Set-Cookie': auth.cookie(HOSTED) });
+}
+
+async function setup(req, res) {
+  const { code, password } = await readJson(req);
+  if (!auth.needsSetup) throw new HttpError(409, 'Parola zaten belirlenmiş.');
+  if (typeof password !== 'string' || password.length < MIN_PASSWORD || password.length > MAX_PASSWORD) {
+    throw new HttpError(400, `Parola en az ${MIN_PASSWORD} karakter olmalı.`);
+  }
+  assertAttempt(auth.checkSetupCode(code, clientIp(req)), 'Kurulum kodu hatalı.');
+  const record = hashPassword(password);
+  setSetting(db, 'password', record);
+  auth.setRecord(record);
+  json(res, { ok: true }, 200, { 'Set-Cookie': auth.cookie(HOSTED) });
 }
 
 async function handleApi(req, res, url) {
   const route = `${req.method} ${url.pathname}`;
   if (auth.enabled) {
+    if (route === 'GET /api/auth') return json(res, { needsSetup: auth.needsSetup });
+    if (route === 'POST /api/setup') return setup(req, res);
     if (route === 'POST /api/login') return login(req, res);
     if (route === 'POST /api/logout') return json(res, { ok: true }, 200, { 'Set-Cookie': auth.clearCookie() });
     if (!auth.isValid(req.headers.cookie)) throw new HttpError(401, 'Oturum açın.');

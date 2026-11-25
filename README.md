@@ -24,16 +24,13 @@ Veri `%LOCALAPPDATA%\PortfolioTracker\portfolio.db` dosyasında tutulur (macOS/L
 
 ## Railway
 
-`main` dalına gönderilen her değişiklik otomatik deploy edilir. Serviste iki şey zorunludur; eksikse uygulama hiçbir veri göstermez:
+`main` dalına gönderilen her değişiklik otomatik deploy edilir. Veritabanının korunması için servise bir Volume (ör. `/data`) bağlı olmalıdır.
 
-| Gereken | Neden |
-| --- | --- |
-| `APP_PASSWORD` değişkeni (en az 10 karakter) | Adres internete açıktır |
-| Volume (ör. `/data`) | Veritabanı deploy'lar arasında korunur |
+Parola ilk açılışta uygulamanın içinde belirlenir. Bunun için sunucu loglarına yazılan tek kullanımlık kurulum kodu istenir; parola belirlenene kadar hiçbir veri gösterilmez.
 
 | Değişken | Açıklama |
 | --- | --- |
-| `APP_PASSWORD` | Giriş parolası. Yerelde isteğe bağlıdır. Değişince tüm oturumlar kapanır. |
+| `APP_PASSWORD` | İsteğe bağlı. Uygulamada belirlenen parolanın yerine geçer (unutulursa sıfırlamak için). |
 | `PORT` | Varsayılan 4517 |
 | `PORTFOLIO_DB` | Veritabanı yolunu değiştirir |
 

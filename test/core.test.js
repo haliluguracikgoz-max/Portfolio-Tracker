@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { compute, xirr } from '../server/analytics.js';
 import { App, cleanTx } from '../server/app.js';
-import { Auth } from '../server/auth.js';
+import { Auth, hashPassword, newSetupCode } from '../server/auth.js';
 import { fromCsv, toCsv } from '../server/csv.js';
 import { openDb } from '../server/db.js';
 import { LedgerError, validateLedger } from '../server/ledger.js';
@@ -279,17 +279,33 @@ test('App: form fiyatı bölünme öncesi gerçek fiyatı verir', async () => {
 });
 
 test('oturum: doğru parola, süre sonu, sahte çerez ve deneme sınırı', () => {
-  const auth = new Auth('cok-gizli-parola');
+  const auth = new Auth({ password: 'cok-gizli-parola' });
   const cookie = auth.cookie(true).split(';')[0];
   assert.ok(auth.isValid(`x=1; ${cookie}`));
   assert.ok(!auth.isValid(cookie, Date.now() + 31 * 86_400_000));
   assert.ok(!auth.isValid(''));
   assert.ok(!auth.isValid(cookie.replace('=1', '=9')));
-  assert.ok(!new Auth('baska-bir-parola').isValid(cookie));
+  assert.ok(!new Auth({ password: 'baska-bir-parola' }).isValid(cookie));
   assert.equal(auth.check('cok-gizli-parola', 'a'), 'ok');
   for (let i = 0; i < 8; i++) assert.equal(auth.check('yanlis', 'b'), 'wrong');
   assert.equal(auth.check('cok-gizli-parola', 'b'), 'blocked');
   assert.equal(auth.check('cok-gizli-parola', 'a'), 'ok');
   assert.equal(auth.check('cok-gizli-parola', 'b', Date.now() + 16 * 60_000), 'ok');
-  assert.ok(new Auth('').isValid(undefined));
+  assert.ok(new Auth().isValid(undefined));
+});
+
+test('ilk kurulum: kod doğrulanana kadar erişim yok, sonra kod geçersiz', () => {
+  const code = newSetupCode();
+  const auth = new Auth({ setupCode: code });
+  assert.ok(auth.needsSetup && auth.enabled);
+  assert.ok(!auth.isValid('pt_session=9999999999999.abc'));
+  assert.equal(auth.check('', 'a'), 'wrong');
+  assert.equal(auth.checkSetupCode('YANLIS', 'a'), 'wrong');
+  assert.equal(auth.checkSetupCode(code.toLowerCase(), 'a'), 'ok');
+  const record = hashPassword('yeni-parola-123');
+  auth.setRecord(record);
+  assert.ok(!auth.needsSetup);
+  assert.equal(auth.checkSetupCode(code, 'a'), 'wrong');
+  assert.equal(auth.check('yeni-parola-123', 'a'), 'ok');
+  assert.ok(new Auth({ record, setupCode: newSetupCode() }).isValid(auth.cookie(true).split(';')[0]));
 });

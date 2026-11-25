@@ -15,13 +15,22 @@
       <form id="login">
         <img src="/icon.svg" alt="" width="44" height="44" />
         <h1>Portfolio Tracker</h1>
+        <p id="intro" hidden>İlk kurulum: kodu girin ve kullanacağınız parolayı belirleyin (en az 10 karakter).</p>
+        <div class="field" id="code-field" hidden>
+          <label for="code">Kurulum kodu</label>
+          <input id="code" autocomplete="off" autocapitalize="characters" spellcheck="false" />
+        </div>
         <input type="text" name="username" autocomplete="username" value="portfolio" hidden />
         <div class="field">
           <label for="password">Parola</label>
           <input id="password" type="password" autocomplete="current-password" required autofocus />
         </div>
+        <div class="field" id="again-field" hidden>
+          <label for="again">Parola (tekrar)</label>
+          <input id="again" type="password" autocomplete="new-password" />
+        </div>
         <p class="error" id="error" role="alert" hidden></p>
-        <button class="btn primary">Giriş yap</button>
+        <button class="btn primary" id="submit">Giriş yap</button>
       </form>
     </main>
   </body>
