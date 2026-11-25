@@ -183,10 +183,9 @@ function overview() {
         stat('Temettü ve faiz', f.money(m.dividends + m.interest), null),
         stat('Yıllık getiri (XIRR)', m.xirr == null ? '–' : f.signedPct(m.xirr), m.xirr == null ? '1 yıl dolunca' : 'para ağırlıklı'))),
 
-    ...watchInline,
-
     // Dönem seçimi varlıkları etkilemez; etkilediği grafiklerin hemen üstünde durur.
     positions.length > 0 && holdingsCard(),
+    ...watchInline,
 
     h('div', { class: 'range-row' }, rangePicker('Dönem'), h('p', { class: 'range-summary' },
       h('span', null, rangeTitle, ': '), delta(r.gain, f.signedMoney(r.gain)),

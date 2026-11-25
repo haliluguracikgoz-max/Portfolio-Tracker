@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { HttpError } from './app.js';
 import { getSetting, setSetting } from './db.js';
 import { MarketError, normalizeSymbol, US_EXCHANGES, yahoo } from './market.js';
@@ -9,9 +10,19 @@ const CNBC_QUOTE = 'https://quote.cnbc.com/quote-html-webservice/restQuote/symbo
 const CNBC_SEARCH = 'https://symlookup.cnbc.com/symservice/symlookup.do';
 
 const item = (id, symbol, name, unit) => ({ id, symbol, name, unit });
-/** id: "sağlayıcı:kod". unit: yield (yüzde faiz), usd ya da plain. */
+/** id: "sağlayıcı:kod"; calc başka kodlardan hesaplanır. unit: yield (yüzde faiz), usd ya da plain. */
 export const DEFAULTS = {
   stocks: [],
+  other: [
+    item('yahoo:TRY=X', 'Dolar / TL', 'USD/TRY', 'plain'),
+    item('yahoo:EURTRY=X', 'Euro / TL', 'EUR/TRY', 'plain'),
+    item('yahoo:EURUSD=X', 'Euro / dolar', 'EUR/USD', 'plain'),
+    item('calc:GAUTRY', 'Gram altın / TL', 'GAU/TRY', 'plain'),
+    item('yahoo:BTC-USD', 'Bitcoin / dolar', 'BTC/USD', 'usd'),
+    item('yahoo:ETH-USD', 'Ethereum / dolar', 'ETH/USD', 'usd'),
+    item('cnbc:XAU=', 'Ons altın / dolar', 'XAU/USD', 'usd'),
+    item('calc:GAUUSD', 'Gram altın / dolar', 'GAU/USD', 'usd'),
+  ],
   macro: [
     item('cnbc:@CL.1', 'CL', 'Crude Oil WTI', 'usd'),
     item('cnbc:US2Y', 'US2YT', 'U.S. 2Y', 'yield'),
@@ -29,6 +40,16 @@ export const DEFAULTS = {
     item('yahoo:QQQ', 'QQQ', 'Invesco QQQ Trust', 'usd'),
   ],
 };
+
+const known = (id) => Object.values(DEFAULTS).flat().find((x) => x.id === id);
+
+/** Gram altın hiçbir serviste yok: ons fiyatından (dolar) ve gerekirse dolar kurundan hesaplanır. */
+const OUNCE_GRAMS = 31.1034768;
+const CALC = { GAUUSD: ['cnbc:XAU='], GAUTRY: ['cnbc:XAU=', 'yahoo:TRY=X'] };
+const partsOf = (id) => (id.startsWith('calc:') ? CALC[id.slice(5)] : [id]);
+/** Arama servislerinde çıkmayan altın kodları. */
+const GOLD = ['calc:GAUTRY', 'calc:GAUUSD', 'cnbc:XAU='];
+const GOLD_QUERY = /^(alt[ıi]n|gram|gold|ons|xau|gau)/;
 
 /** Yalnızca ABD borsalarında işlem gören bu türleri kabul eden listeler. */
 const US_ONLY = {
@@ -53,7 +74,7 @@ const splitId = (id) => {
   const i = id.indexOf(':');
   return [id.slice(0, i), id.slice(i + 1)];
 };
-const validId = (id) => typeof id === 'string' && /^(yahoo:[A-Z0-9^][A-Z0-9^=.&-]{0,19}|cnbc:[A-Z0-9.@][A-Z0-9.@=-]{0,19})$/.test(id);
+const validId = (id) => typeof id === 'string' && /^(yahoo:[A-Z0-9^][A-Z0-9^=.&-]{0,19}|cnbc:[A-Z0-9.@][A-Z0-9.@=-]{0,19}|calc:(GAUUSD|GAUTRY))$/.test(id);
 const chunks = (list, n) => Array.from({ length: Math.ceil(list.length / n) }, (_, i) => list.slice(i * n, i * n + n));
 const letters = (s) => s.replace(/[^A-Z0-9]/gi, '').toUpperCase();
 
@@ -139,9 +160,9 @@ export class Watch {
   #snapshot() {
     const view = (list) => {
       const items = this.#items(list);
-      const used = [...new Set(items.map((x) => splitId(x.id)[0]))].map((p) => this.#providers[p]);
+      const used = [...new Set(items.flatMap((x) => partsOf(x.id)).map((id) => splitId(id)[0]))].map((p) => this.#providers[p]);
       return {
-        items: items.map((x) => ({ ...x, value: null, change: null, changePct: null, delayed: false, ...this.#quotes.get(x.id) })),
+        items: items.map((x) => ({ ...x, value: null, change: null, changePct: null, delayed: false, ...this.#quote(x.id) })),
         asOf: used.length ? Math.min(...used.map((p) => p.asOf)) || null : null,
         error: used.find((p) => p.error)?.error ?? null,
       };
@@ -149,9 +170,18 @@ export class Watch {
     return Object.fromEntries(Object.keys(DEFAULTS).map((list) => [list, view(list)]));
   }
 
+  #quote(id) {
+    if (!id.startsWith('calc:')) return this.#quotes.get(id);
+    const parts = partsOf(id).map((p) => this.#quotes.get(p));
+    if (parts.some((p) => p?.value == null)) return undefined;
+    const product = (pick) => parts.reduce((acc, p) => acc * pick(p), 1) / OUNCE_GRAMS;
+    const prev = parts.every((p) => p.change != null) ? product((p) => p.value - p.change) : null;
+    return quote(product((p) => p.value), prev, parts.some((p) => p.delayed));
+  }
+
   async #refresh() {
     this.#triedAt = Date.now();
-    const ids = [...new Set(Object.keys(DEFAULTS).flatMap((list) => this.#items(list)).map((x) => x.id))];
+    const ids = [...new Set(Object.keys(DEFAULTS).flatMap((list) => this.#items(list)).flatMap((x) => partsOf(x.id)))];
     const codes = (provider) => ids.map(splitId).filter(([p]) => p === provider).map(([, code]) => code);
     const run = async (provider, fetchQuotes) => {
       const wanted = codes(provider);
@@ -187,7 +217,10 @@ export class Watch {
     const listed = new Set(this.#items(list).map((x) => x.id));
     const text = String(q ?? '').trim().slice(0, 60);
     if (!text) return [];
-    const query = list === 'macro' ? (TURKISH[text.toLocaleLowerCase('tr')] ?? text) : text;
+    const lower = text.toLocaleLowerCase('tr');
+    const query = US_ONLY[list] ? text : (TURKISH[lower] ?? text);
+    const gold = !US_ONLY[list] && GOLD_QUERY.test(lower)
+      ? GOLD.map(known).map((x) => ({ id: x.id, symbol: x.name, name: x.symbol, kind: 'Altın', exchange: x.id.startsWith('calc:') ? 'Hesaplanan' : 'CNBC' })) : [];
     const fromYahoo = async () => {
       const json = await this.#yahoo(`/v1/finance/search?q=${encodeURIComponent(query)}&quotesCount=16&newsCount=0`);
       return (json?.quotes ?? [])
@@ -196,7 +229,7 @@ export class Watch {
     };
     // Tahvil faizleri ve bazı endeksler yalnızca CNBC'de bulunur.
     const fromCnbc = async () => {
-      if (list !== 'macro') return [];
+      if (US_ONLY[list]) return [];
       const json = await this.#cnbc(`${CNBC_SEARCH}?prefix=${encodeURIComponent(query)}&partnerid=20064&pgok=1&pgsize=12&output=json`);
       return (Array.isArray(json) ? json : [])
         .filter((x) => x.issueType === 'BOND' || x.issueType === 'INDEX')
@@ -206,9 +239,9 @@ export class Watch {
     if (a.status === 'rejected' && (b.status === 'rejected' || US_ONLY[list])) throw a.reason;
     const y = (a.value ?? []).filter((x) => validId(x.id)).slice(0, 8);
     const seen = new Set(y.map((x) => letters(x.symbol)));
-    const c = (b.value ?? []).filter((x) => validId(x.id) && !seen.has(letters(x.symbol))).slice(0, 5);
+    const c = (b.value ?? []).filter((x) => validId(x.id) && !seen.has(letters(x.symbol)) && !gold.some((g) => g.id === x.id)).slice(0, 5);
     const bonds = c.filter((x) => x.kind === KIND_LABEL.BOND);
-    return [...bonds, ...y, ...c.filter((x) => !bonds.includes(x))].map((x) => ({ ...x, added: listed.has(x.id) }));
+    return [...gold, ...bonds, ...y, ...c.filter((x) => !bonds.includes(x))].map((x) => ({ ...x, added: listed.has(x.id) }));
   }
 
   /** Verisi gerçekten alınabilen bir kodu listeye ekler. Ad ve birim servisten okunur. */
@@ -221,15 +254,19 @@ export class Watch {
       return items;
     };
     check();
-    const known = DEFAULTS[list].find((x) => x.id === clean);
     if (!validId(clean)) throw new HttpError(400, 'Geçersiz sembol.');
     const [provider, code] = splitId(clean);
+    if (provider === 'calc') {
+      if (US_ONLY[list]) throw new HttpError(422, US_ONLY[list].error);
+      this.#save(list, [...check(), known(clean)]);
+      return this.get({ force: true });
+    }
     const info = provider === 'yahoo' ? await this.#yahooInfo(code) : (await this.#cnbcQuotes([code])).get(code);
     if (!info) throw new HttpError(404, `“${code}” için veri bulunamadı.`);
     if (!inScope(list, code, info.kind, info.exchange)) throw new HttpError(422, US_ONLY[list].error);
     if (info.value != null) this.#remember(clean, info);
     this.#providers[provider].asOf ||= Date.now();
-    const entry = known ?? item(clean, code.replace(/^[.@]/, ''), String(info.name ?? code).slice(0, 80), info.unit);
+    const entry = known(clean) ?? item(clean, code.replace(/^[.@]/, ''), String(info.name ?? code).slice(0, 80), info.unit);
     // Veri beklenirken liste değişmiş olabilir.
     this.#save(list, [...check(), entry]);
     return this.#snapshot();
@@ -250,6 +287,28 @@ export class Watch {
     if (index < 0) throw new HttpError(404, 'Listede bulunamadı.');
     this.#save(list, items.toSpliced(index, 1));
     return this.#snapshot();
+  }
+
+  /**
+   * Toplu aktarım: {"stocks": {"MSFT": "Microsoft"}}. Aynı metin yalnızca bir kez uygulanır;
+   * sonradan listeden çıkarılan satır yeniden başlatmada geri gelmez.
+   */
+  importOnce(text) {
+    const hash = createHash('sha256').update(text).digest('hex');
+    if (getSetting(this.#db, 'watch.imported') === hash) return null;
+    const added = {};
+    for (const [list, entries] of Object.entries(JSON.parse(text))) {
+      if (!Object.hasOwn(US_ONLY, list)) throw new Error(`“${list}” listesine aktarım yapılamaz.`);
+      const items = this.#items(list);
+      const fresh = Object.entries(entries)
+        .map(([symbol, name]) => item(`yahoo:${symbol}`, symbol, String(name).slice(0, 80), 'usd'))
+        .filter((x) => validId(x.id) && normalizeSymbol(x.symbol) === x.symbol && !items.some((y) => y.id === x.id))
+        .slice(0, Math.max(0, MAX_ITEMS - items.length));
+      this.#save(list, [...items, ...fresh]);
+      added[list] = fresh.length;
+    }
+    setSetting(this.#db, 'watch.imported', hash);
+    return added;
   }
 
   /** Silmeyi geri alır: kayıt, listedeki eski yerine döner. */

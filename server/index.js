@@ -37,6 +37,14 @@ if (!setupProblems.length) {
   db = openDb(dbPath);
   app = new App(db, new Market(db));
   watch = new Watch(db);
+  if (process.env.WATCH_IMPORT) {
+    try {
+      const added = watch.importOnce(process.env.WATCH_IMPORT);
+      if (added) console.log(`Takip listesine aktarıldı: ${JSON.stringify(added)}`);
+    } catch (e) {
+      console.error(`WATCH_IMPORT aktarılamadı: ${e.message}`);
+    }
+  }
   console.log(`Veritabanı: ${dbPath}`);
   const setupCode = HOSTED ? newSetupCode() : null;
   auth = new Auth({ password: PASSWORD, record: getSetting(db, 'password'), setupCode });

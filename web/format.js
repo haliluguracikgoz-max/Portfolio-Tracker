@@ -22,8 +22,7 @@ const n4 = num(4, 4);
 const nTiny = new Intl.NumberFormat('tr-TR', { maximumSignificantDigits: 4 });
 const plain = (v, small) => (Math.abs(v) < 0.1 ? nTiny : Math.abs(v) < small ? n4 : n2).format(v);
 export const watchValue = (x) => (x.unit === 'yield' ? `%${n3.format(x.value)}` : x.unit === 'usd' ? `$${plain(x.value, 1)}` : plain(x.value, 20));
-export const watchChange = (x) =>
-  x.unit === 'yield' ? `${signOf(x.change, (x.change * 100).toFixed(1))}${n1.format(Math.abs(x.change * 100))} bp` : x.changePct == null ? '' : signedPct(x.changePct);
+export const watchChange = (x) => (x.changePct == null ? '' : signedPct(x.changePct));
 
 /** Eksen için kısa tutar; adım küçükse ondalık gösterir. */
 export function axisMoney(v, step = 1) {

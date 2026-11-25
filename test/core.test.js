@@ -311,7 +311,7 @@ test('ilk kurulum: kod doğrulanana kadar erişim yok, sonra kod geçersiz', () 
   assert.ok(new Auth({ record, setupCode: newSetupCode() }).isValid(auth.cookie(true).split(';')[0]));
 });
 
-test('fiyat tazeliği: seansta hepsi, kapalıyken yalnızca endeks sık yenilenir', async (t) => {
+test('fiyat tazeliği: borsa açık ya da kapalı, her dakika bütün fiyatlar yenilenir', async (t) => {
   t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-01-06T14:00:00Z') });
   const open = Date.parse('2026-01-06T14:30:00Z') / 1000;
   const session = (c) => {
@@ -333,11 +333,12 @@ test('fiyat tazeliği: seansta hepsi, kapalıyken yalnızca endeks sık yenileni
     await app.state();
     return calls.sort();
   };
-  assert.deepEqual(await after(1), ['^GSPC']);
+  assert.deepEqual(await after(0.4), []);
+  assert.deepEqual(await after(1), ['AAA', '^GSPC']);
   assert.deepEqual(await after(31), ['AAA', '^GSPC']);
   assert.deepEqual(await after(32), ['AAA', '^GSPC']);
   assert.deepEqual(await after(60 * 8), ['AAA', '^GSPC']);
-  assert.deepEqual(await after(60 * 8 + 1), ['^GSPC']);
+  assert.deepEqual(await after(60 * 8 + 1), ['AAA', '^GSPC']);
 });
 
 const cnbcJson = (over = {}) => ({ FormattedQuoteResult: { FormattedQuote: [
@@ -446,9 +447,38 @@ test('piyasa paneli: ekle, çıkar, geri al; liste kalıcıdır', async () => {
 test('piyasa paneli: arama ETF listesinde yalnızca ABD ETF’lerini, makroda her şeyi gösterir', async () => {
   const { watch } = makeWatch();
   assert.deepEqual((await watch.search('etf', 'voo')).map((x) => x.id), ['yahoo:VOO']);
-  assert.deepEqual((await watch.search('macro', 'altın')).map((x) => x.id), ['cnbc:US5Y', 'yahoo:VOO', 'yahoo:VOO.MX', 'yahoo:AAPL']);
+  assert.deepEqual((await watch.search('macro', 'altın')).map((x) => x.id), ['calc:GAUTRY', 'calc:GAUUSD', 'cnbc:XAU=', 'cnbc:US5Y', 'yahoo:VOO', 'yahoo:VOO.MX', 'yahoo:AAPL']);
   assert.deepEqual((await watch.search('stocks', 'a')).map((x) => x.id), ['yahoo:VOO', 'yahoo:AAPL']);
   await watch.add('etf', 'yahoo:VOO');
   assert.equal((await watch.search('etf', 'voo'))[0].added, true);
   assert.deepEqual(await watch.search('etf', '  '), []);
+});
+
+test('piyasa paneli: gram altın ons fiyatı ve kurdan hesaplanır, aramada çıkar', async () => {
+  const { watch } = makeWatch({
+    spark: () => spark({ 'TRY=X': [50, 49] }),
+    cnbc: () => ({ FormattedQuoteResult: { FormattedQuote: [{ symbol: 'XAU=', last: '3,110.34768', previous_day_closing: '3,000.00', realTime: 'true' }] } }),
+  });
+  const other = (await watch.get()).other.items;
+  const by = Object.fromEntries(other.map((x) => [x.name, x]));
+  assert.equal(other.length, 8);
+  near(by['GAU/USD'].value, 100);
+  near(by['GAU/TRY'].value, 5000);
+  near(by['GAU/TRY'].changePct, (3110.34768 * 50) / (3000 * 49) - 1);
+  assert.deepEqual((await watch.search('other', 'Altın')).slice(0, 3).map((x) => x.id), ['calc:GAUTRY', 'calc:GAUUSD', 'cnbc:XAU=']);
+  watch.remove('other', 'calc:GAUTRY');
+  assert.equal((await watch.add('other', 'calc:GAUTRY')).other.items.at(-1).name, 'GAU/TRY');
+  await assert.rejects(watch.add('other', 'calc:YOK'), /Geçersiz sembol/);
+  await assert.rejects(watch.add('stocks', 'calc:GAUTRY'), /hisse ve ETF/);
+});
+
+test('piyasa paneli: toplu aktarım bir kez uygulanır, var olanı korur', async () => {
+  const { watch, again } = makeWatch();
+  await watch.add('stocks', 'yahoo:AAPL');
+  const text = JSON.stringify({ stocks: { MSFT: 'Microsoft', AAPL: 'Apple', NVDA: 'NVIDIA', 'x y': 'bozuk' } });
+  assert.deepEqual(watch.importOnce(text), { stocks: 2 });
+  watch.remove('stocks', 'yahoo:MSFT');
+  assert.equal(again().importOnce(text), null);
+  assert.deepEqual(idsOf((await again().get()).stocks), ['yahoo:AAPL', 'yahoo:NVDA']);
+  assert.throws(() => watch.importOnce('{"macro":{}}'), /aktarım yapılamaz/);
 });

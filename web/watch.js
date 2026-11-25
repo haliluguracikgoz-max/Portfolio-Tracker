@@ -5,6 +5,7 @@ import { icon } from './icons.js';
 
 const LISTS = {
   stocks: { title: 'Takip Edilen Hisseler', add: 'Takip listesine ekle', hint: 'ABD borsalarındaki hisse ve ETF’leri sembol ya da adla arayın.', placeholder: 'NVDA, Tesla, VOO…', side: 'left', tickers: true },
+  other: { title: 'Diğer Takip Edilenler', add: 'Takip edilenlere ekle', hint: 'Döviz, altın, kripto, emtia, endeks, hisse ya da ETF arayın.', placeholder: 'USDTRY, gram altın, ethereum…', side: 'left' },
   macro: { title: 'Makro Göstergeler', add: 'Makro göstergelere ekle', hint: 'Endeks, emtia, faiz, döviz, kripto, hisse ya da ETF arayın.', placeholder: 'altın, bitcoin, USDTRY, US5Y…', side: 'right' },
   etf: { title: 'ETFs', add: 'ETF ekle', hint: 'ABD borsalarındaki ETF’leri sembol ya da adla arayın.', placeholder: 'VOO, semiconductor…', side: 'right', tickers: true },
 };
@@ -18,6 +19,14 @@ export function createWatch({ toast }) {
     sections[key] = h('section', { class: `watch ${key}${tickers ? ' tickers' : ''}`, 'aria-labelledby': `watch-${key}` });
     (side === 'left' ? left : right).append(sections[key]);
   }
+  // Ekrandan uzun panel sayfayla birlikte kayar, sonuna gelince durur; içinde ayrı kaydırma çubuğu olmaz.
+  const stick = () => {
+    for (const side of [left, right]) side.style.setProperty('--stick', `${Math.min(64, window.innerHeight - side.offsetHeight)}px`);
+  };
+  const resized = new ResizeObserver(stick);
+  resized.observe(left);
+  resized.observe(right);
+  window.addEventListener('resize', stick);
   const removing = new Set();
   let data = null;
   let failed = false;
