@@ -37,9 +37,16 @@ const store = {
     }
   },
 };
+/** Telefondaki Varlıklar görünümleri; icon ve title düğmenin götüreceği görünümü anlatır. */
+const HOLDINGS_VIEWS = {
+  folded: { next: 'compact', icon: 'chevron', title: 'Varlıkları göster' },
+  compact: { next: 'full', icon: 'chevrons', title: 'Ayrıntıları göster' },
+  full: { next: 'folded', icon: 'chevronUp', title: 'Tabloyu tek satır yap' },
+};
+
 const ui = {
   range: store.get('range', 'ALL'),
-  holdingsFull: store.get('holdingsFull', '0') === '1',
+  holdingsView: Object.hasOwn(HOLDINGS_VIEWS, store.get('holdingsView', '')) ? store.get('holdingsView', '') : store.get('holdingsFull', '0') === '1' ? 'full' : 'compact',
   alloc: 'symbol',
   tables: new Set(),
   sort: { key: 'value', dir: -1 },
@@ -198,20 +205,25 @@ function holdingsCard() {
   const { key, dir } = ui.sort;
   const get = cols.find((c) => c.key === key).get;
   const rows = [...state.positions].sort((a, b) => (get(a) < get(b) ? -dir : get(a) > get(b) ? dir : 0));
-  // Telefonda her varlık tek satırdır; düğme ayrıntılı görünümü açar. Geniş ekranda düğme görünmez.
+  // Telefonda düğme üç görünüm arasında döner: tablo tek satır → her varlık bir satır → ayrıntılı. Geniş ekranda görünmez.
   const toggle = h('button', { class: 'icon-btn holdings-toggle', onclick: () => {
-    ui.holdingsFull = !ui.holdingsFull;
-    store.set('holdingsFull', ui.holdingsFull ? '1' : '0');
+    ui.holdingsView = HOLDINGS_VIEWS[ui.holdingsView].next;
+    store.set('holdingsView', ui.holdingsView);
     mark();
-  } }, icon('chevron', 18));
+  } });
   const mark = () => {
-    section.classList.toggle('compact', !ui.holdingsFull);
-    toggle.setAttribute('aria-expanded', String(ui.holdingsFull));
-    toggle.title = ui.holdingsFull ? 'Tek satır göster' : 'Ayrıntıları göster';
-    toggle.setAttribute('aria-label', `Varlıklar: ${toggle.title}`);
+    const view = HOLDINGS_VIEWS[ui.holdingsView];
+    section.classList.toggle('folded', ui.holdingsView === 'folded');
+    section.classList.toggle('compact', ui.holdingsView === 'compact');
+    toggle.replaceChildren(icon(view.icon, 18));
+    toggle.setAttribute('aria-expanded', String(ui.holdingsView !== 'folded'));
+    toggle.title = view.title;
+    toggle.setAttribute('aria-label', `Varlıklar: ${view.title}`);
   };
   const section = h('section', { class: 'card wide' },
-    h('header', { class: 'card-head' }, h('div', null, h('h2', null, 'Varlıklar')), h('div', { class: 'card-tools' }, h('button', { class: 'ghost', onclick: () => openForm({ type: 'BUY' }) }, 'Hisse ekle'), toggle)),
+    h('header', { class: 'card-head' }, h('div', null, h('h2', null, 'Varlıklar')),
+      h('p', { class: 'holdings-sum' }, delta(state.summary.dayChange, f.signedPct(state.summary.dayChangePct)), h('b', null, f.money(state.summary.value))),
+      h('div', { class: 'card-tools' }, h('button', { class: 'ghost', onclick: () => openForm({ type: 'BUY' }) }, 'Hisse ekle'), toggle)),
     h('div', { class: 'table-wrap' }, h('table', { class: 'holdings' },
       h('thead', null, h('tr', null, cols.map((c, i) =>
         h('th', { scope: 'col', class: i > 1 ? 'num' : '', 'aria-sort': c.key === key ? (dir < 0 ? 'descending' : 'ascending') : null },

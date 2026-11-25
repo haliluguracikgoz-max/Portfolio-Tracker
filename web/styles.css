@@ -285,7 +285,7 @@ th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; white-sp
 td small { display: block; color: var(--ink-3); }
 .strong { font-weight: 620; }
 .nowrap { white-space: nowrap; }
-.holdings-toggle { display: none; }
+.holdings-toggle, .holdings-sum { display: none; }
 .holdings tbody th a { display: block; text-decoration: none; }
 .holdings tbody th span { display: block; max-width: 210px; color: var(--ink-3); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @media (hover: hover) { .holdings tbody th a:hover b { text-decoration: underline; } }
@@ -471,8 +471,13 @@ input::placeholder { color: var(--ink-3); }
   .holdings .c-weight, .holdings .c-gap, .holdings tr:not(.cash-row) .row-actions { display: none; }
   .holdings .cash-row .row-actions { grid-area: 2 / 8 / 3 / 13; justify-self: end; margin-right: -12px; }
   .holdings-toggle { display: inline-grid; margin-right: -10px; }
-  .holdings-toggle .icon { transition: transform 0.15s; }
-  .holdings-toggle[aria-expanded='true'] .icon { transform: rotate(180deg); }
+  /* Tablo komple tek satır: ad, günlük değişim, toplam değer. */
+  .card.folded { padding-top: 4px; padding-bottom: 4px; }
+  .folded .card-head { align-items: center; margin: 0; }
+  .folded .card-tools { margin-top: 0; }
+  .folded .card-tools .ghost, .folded .table-wrap { display: none; }
+  .folded .holdings-sum { display: flex; flex-wrap: wrap; flex: 1; gap: 0 10px; justify-content: flex-end; font-size: 14px; font-variant-numeric: tabular-nums; }
+
   /* Tek satır: sembol, fiyat, günlük değişim, değer. */
   .compact .holdings thead { display: none; }
   .compact .holdings tbody { display: grid; grid-template-columns: repeat(4, auto); justify-content: space-between; column-gap: 8px; }

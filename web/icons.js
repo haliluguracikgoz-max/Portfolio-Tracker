@@ -10,6 +10,8 @@ const PATHS = {
   plus: 'M12 5v14M5 12h14',
   home: 'M4 18.5l5.5-6.5 4.5 3.5L20 7',
   chevron: 'M6 9l6 6 6-6',
+  chevrons: 'M6 6l6 6 6-6M6 13l6 6 6-6',
+  chevronUp: 'M6 15l6-6 6 6',
   list: 'M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01',
 };
 
