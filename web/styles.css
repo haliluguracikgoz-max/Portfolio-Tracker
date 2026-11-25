@@ -168,6 +168,7 @@ main { max-width: 1360px; margin: 0 auto; padding: 28px 32px 64px; }
 .card { min-width: 0; padding: 20px 22px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); box-shadow: var(--shadow); }
 .card.wide { grid-column: 1 / -1; }
 main > .card { margin-bottom: 16px; }
+.card + .range-row { margin-top: 24px; }
 .card-head { display: flex; flex-wrap: wrap; gap: 8px 16px; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; }
 .card-head h2 { font-size: 16px; font-weight: 640; }
 .card-head .sub { font-size: 13px; color: var(--ink-3); }

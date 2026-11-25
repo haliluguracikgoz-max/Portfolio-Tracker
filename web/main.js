@@ -167,6 +167,9 @@ function overview() {
         stat('Temettü ve faiz', f.money(m.dividends + m.interest), null),
         stat('Yıllık getiri (XIRR)', m.xirr == null ? '–' : f.signedPct(m.xirr), m.xirr == null ? '1 yıl dolunca' : 'para ağırlıklı'))),
 
+    // Dönem seçimi varlıkları etkilemez; etkilediği grafiklerin hemen üstünde durur.
+    positions.length > 0 && holdingsCard(),
+
     h('div', { class: 'range-row' }, rangePicker('Dönem'), h('p', { class: 'range-summary' },
       h('span', null, rangeTitle, ': '), delta(r.gain, f.signedMoney(r.gain)),
       h('span', null, ' · getiri '), h('b', null, f.signedPct(r.twr)),
@@ -174,12 +177,6 @@ function overview() {
       h('span', null, ' · en büyük düşüş '), h('b', null, f.pct(r.maxDrawdown)))),
 
     h('div', { class: 'grid' },
-      card({
-        id: 'value', title: 'Portföy değeri', wide: true, legendOf: valueSeries,
-        sub: r.netFlow ? `Dönemde net para ${r.netFlow > 0 ? 'girişi' : 'çıkışı'}: ${f.money(Math.abs(r.netFlow))}` : 'Dönemde para girişi ya da çıkışı yok',
-        chart: () => lineChart({ dates: r.dates, series: valueSeries, format: f.money, axis: f.axisMoney, height: 340, label: 'Portföy değeri zaman grafiği' }),
-        table: () => seriesTable(r.dates, valueSeries, f.money),
-      }),
       card({
         id: 'perf', title: 'S&P 500 ile karşılaştırma', sub: 'Para giriş çıkışından arındırılmış getiri. Endeks temettüsüz.', legendOf: perfSeries,
         chart: () => lineChart({ dates: r.returnDates, series: perfSeries, format: f.signedPct, axis: f.axisPct, label: 'Portföy ve S&P 500 getirisi', endLabel: f.signedPct }),
@@ -190,7 +187,12 @@ function overview() {
         chart: () => lineChart({ dates: r.returnDates, series: ddSeries, format: f.pct, axis: f.axisPct, zero: true, label: 'Zirveden düşüş grafiği' }),
         table: () => seriesTable(r.returnDates, ddSeries, f.pct),
       }),
-      positions.length > 0 && holdingsCard(),
+      card({
+        id: 'value', title: 'Portföy değeri', wide: true, legendOf: valueSeries,
+        sub: r.netFlow ? `Dönemde net para ${r.netFlow > 0 ? 'girişi' : 'çıkışı'}: ${f.money(Math.abs(r.netFlow))}` : 'Dönemde para girişi ya da çıkışı yok',
+        chart: () => lineChart({ dates: r.dates, series: valueSeries, format: f.money, axis: f.axisMoney, height: 340, label: 'Portföy değeri zaman grafiği' }),
+        table: () => seriesTable(r.dates, valueSeries, f.money),
+      }),
       positions.length > 0 && heatCard(),
       allocationCard(),
       gainCard(),
