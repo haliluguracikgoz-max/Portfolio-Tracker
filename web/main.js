@@ -39,6 +39,7 @@ const store = {
 };
 const ui = {
   range: store.get('range', 'ALL'),
+  holdingsFull: store.get('holdingsFull', '0') === '1',
   alloc: 'symbol',
   tables: new Set(),
   sort: { key: 'value', dir: -1 },
@@ -197,8 +198,20 @@ function holdingsCard() {
   const { key, dir } = ui.sort;
   const get = cols.find((c) => c.key === key).get;
   const rows = [...state.positions].sort((a, b) => (get(a) < get(b) ? -dir : get(a) > get(b) ? dir : 0));
-  return h('section', { class: 'card wide' },
-    h('header', { class: 'card-head' }, h('div', null, h('h2', null, 'Varlıklar')), h('div', { class: 'card-tools' }, h('button', { class: 'ghost', onclick: () => openForm({ type: 'BUY' }) }, 'Hisse ekle'))),
+  // Telefonda her varlık tek satırdır; düğme ayrıntılı görünümü açar. Geniş ekranda düğme görünmez.
+  const toggle = h('button', { class: 'icon-btn holdings-toggle', onclick: () => {
+    ui.holdingsFull = !ui.holdingsFull;
+    store.set('holdingsFull', ui.holdingsFull ? '1' : '0');
+    mark();
+  } }, icon('chevron', 18));
+  const mark = () => {
+    section.classList.toggle('compact', !ui.holdingsFull);
+    toggle.setAttribute('aria-expanded', String(ui.holdingsFull));
+    toggle.title = ui.holdingsFull ? 'Tek satır göster' : 'Ayrıntıları göster';
+    toggle.setAttribute('aria-label', `Varlıklar: ${toggle.title}`);
+  };
+  const section = h('section', { class: 'card wide' },
+    h('header', { class: 'card-head' }, h('div', null, h('h2', null, 'Varlıklar')), h('div', { class: 'card-tools' }, h('button', { class: 'ghost', onclick: () => openForm({ type: 'BUY' }) }, 'Hisse ekle'), toggle)),
     h('div', { class: 'table-wrap' }, h('table', { class: 'holdings' },
       h('thead', null, h('tr', null, cols.map((c, i) =>
         h('th', { scope: 'col', class: i > 1 ? 'num' : '', 'aria-sort': c.key === key ? (dir < 0 ? 'descending' : 'ascending') : null },
@@ -227,6 +240,8 @@ function holdingsCard() {
           h('td', { class: 'row-actions' },
             h('button', { class: 'ghost', onclick: () => openForm({ type: 'DEPOSIT' }) }, 'Ekle'),
             h('button', { class: 'ghost', onclick: () => openForm({ type: 'WITHDRAW' }) }, 'Çek')))))));
+  mark();
+  return section;
 }
 
 function heatCard() {

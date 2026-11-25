@@ -285,6 +285,7 @@ th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; white-sp
 td small { display: block; color: var(--ink-3); }
 .strong { font-weight: 620; }
 .nowrap { white-space: nowrap; }
+.holdings-toggle { display: none; }
 .holdings tbody th a { display: block; text-decoration: none; }
 .holdings tbody th span { display: block; max-width: 210px; color: var(--ink-3); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @media (hover: hover) { .holdings tbody th a:hover b { text-decoration: underline; } }
@@ -469,6 +470,21 @@ input::placeholder { color: var(--ink-3); }
   .holdings .c-d small { font-size: 12px; }
   .holdings .c-weight, .holdings .c-gap, .holdings tr:not(.cash-row) .row-actions { display: none; }
   .holdings .cash-row .row-actions { grid-area: 2 / 8 / 3 / 13; justify-self: end; margin-right: -12px; }
+  .holdings-toggle { display: inline-grid; margin-right: -10px; }
+  .holdings-toggle .icon { transition: transform 0.15s; }
+  .holdings-toggle[aria-expanded='true'] .icon { transform: rotate(180deg); }
+  /* Tek satır: sembol, fiyat, günlük değişim, değer. */
+  .compact .holdings thead { display: none; }
+  .compact .holdings tbody { display: grid; grid-template-columns: repeat(4, auto); justify-content: space-between; column-gap: 8px; }
+  .compact .holdings tbody tr { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.3fr) minmax(0, 1.2fr) minmax(0, 1.6fr); grid-column: 1 / -1; column-gap: 8px; align-items: center; min-height: 44px; padding: 0; }
+  .compact .holdings tbody tr { grid-template-columns: subgrid; }
+  .compact .holdings tbody tr > * { grid-row: 1; margin: 0; }
+  .compact .holdings tbody th { grid-column: 1; }
+  .compact .holdings .c-c { grid-column: 2; text-align: right; font-size: 14px; }
+  .compact .holdings .c-day { grid-column: 3; font-size: 14px; }
+  .compact .holdings .c-value { grid-column: 4; font-size: 14px; }
+  .compact .holdings .c-c::before { display: none; }
+  .compact .holdings tbody th span, .compact .holdings .c-spark, .compact .holdings .c-a, .compact .holdings .c-b, .compact .holdings .c-d, .compact .holdings tr.cash-row .row-actions { display: none; }
 
   .tx tbody tr { grid-template-columns: auto auto minmax(0, 1fr) auto; gap: 4px 14px; align-items: center; }
   .tx .c-type { grid-area: 1 / 1 / 2 / 2; }
@@ -514,6 +530,7 @@ input::placeholder { color: var(--ink-3); }
   .brand { gap: 8px; font-size: 15px; }
   .holdings .c-spark { display: none; }
   .holdings tbody th { grid-column-end: 8; }
+  .compact .holdings :is(.c-c, .c-day, .c-value) { font-size: 13px; }
 }
 @media (max-width: 340px) {
   .brand span { display: none; }
