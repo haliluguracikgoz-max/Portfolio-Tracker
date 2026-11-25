@@ -224,7 +224,7 @@ async function checkPriceService() {
     console.error(`Fiyat servisi kontrolü başarısız: ${e.message}`);
   }
   if (!watch) return;
-  const { positions, warnings } = await app.state();
+  const { positions, warnings } = await app.state(true);
   console.log(`Portföy fiyatları: ${positions.length} pozisyon, ${warnings.length} uyarı.`);
   // Büyük günlük hareket, kaynaktaki eksik günün belirtisi olabilir.
   for (const p of positions.filter((x) => Math.abs(x.dayChangePct) >= 0.05)) {
