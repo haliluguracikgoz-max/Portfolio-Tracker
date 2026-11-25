@@ -3,12 +3,12 @@ const CASH_EPS = 0.005;
 
 /**
  * İşlem (tx) alanları:
- *   type     BUY | SELL | DEPOSIT | WITHDRAW | DIVIDEND | INTEREST | FEE
+ *   type     BUY | SELL | DEPOSIT | WITHDRAW | DIVIDEND | INTEREST | FEE | ADJUST
  *   quantity, price   işlem günündeki gerçek adet ve fiyat (sonraki bölünmelerden önceki hâli)
- *   amount   nakit hareketlerinde tutar
+ *   amount   nakit hareketlerinde tutar; ADJUST'ta o andan itibaren geçerli nakit bakiyesi
  *   settle   CASH: portföydeki nakitten geçer. EXTERNAL: para dışarıdan gelir / dışarı çıkar.
  */
-export const TX_TYPES = ['BUY', 'SELL', 'DEPOSIT', 'WITHDRAW', 'DIVIDEND', 'INTEREST', 'FEE'];
+export const TX_TYPES = ['BUY', 'SELL', 'DEPOSIT', 'WITHDRAW', 'DIVIDEND', 'INTEREST', 'FEE', 'ADJUST'];
 
 export class LedgerError extends Error {}
 
@@ -144,6 +144,15 @@ export class Ledger {
         this.cash -= tx.amount;
         this.fees += tx.amount;
         return;
+      case 'ADJUST': {
+        // Nakit düzeltmesi: bakiye girilen tutara eşitlenir. Fark dışarıdan gelen ya da dışarı
+        // çıkan para sayılır; kazanç ya da zarar gibi görünmez.
+        const diff = tx.amount - this.cash;
+        this.cash = tx.amount;
+        if (diff > 0) flow.inflow += diff;
+        else flow.outflow -= diff;
+        return;
+      }
     }
   }
 }

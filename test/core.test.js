@@ -51,6 +51,20 @@ test('alım nakitten düşer, değer ve kazanç doğru hesaplanır', () => {
   near(s.positions[0].dayChange, -50);
 });
 
+test('nakit düzenleme bakiyeyi girilen tutara eşitler, farkı kazanç saymaz', () => {
+  const s = compute([
+    deposit('2026-01-02', 1000), buy('2026-01-02', 'A', 10, 50),
+    tx('2026-01-05', 'ADJUST', { amount: 800 }), deposit('2026-01-05', 50), tx('2026-01-06', 'ADJUST', { amount: 0 }),
+  ], market({ bench: BENCH, closes: { A: { '2026-01-02': 50, '2026-01-05': 50, '2026-01-06': 50 } } }), '2026-01-06');
+  assert.deepEqual(s.history.map((h) => h.cash), [500, 850, 0]);
+  near(s.summary.cash, 0);
+  near(s.summary.contributed, 500);
+  near(s.summary.totalGain, 0);
+  near(s.summary.dayChange, 0);
+  assert.equal(cleanTx({ type: 'ADJUST', date: '2026-01-06', amount: '0' }, '2026-01-06').amount, 0);
+  assert.throws(() => cleanTx({ type: 'ADJUST', date: '2026-01-06', amount: '-1' }, '2026-01-06'), /Nakit miktarı/);
+});
+
 test('kazanç bileşenleri toplam kazanca eşittir', () => {
   const s = compute([
     deposit('2026-01-02', 5000), buy('2026-01-02', 'A', 10, 50, { fee: 1 }), buy('2026-01-02', 'B', 5, 20),

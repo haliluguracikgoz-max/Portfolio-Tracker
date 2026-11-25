@@ -4,9 +4,10 @@ Amerikan borsalarındaki hisse ve fonlar için kişisel portföy takip uygulamas
 
 ## Özellikler
 
-- **İşlemler:** hisse alış/satış, nakit giriş/çıkış, temettü, faiz ve ücret. Düzenleme, silme (geri alınabilir), CSV içe/dışa aktarma.
+- **İşlemler:** hisse alış/satış, nakit giriş/çıkış. Eski kayıtlardaki temettü, faiz ve ücret işlemleri düzenlenebilir. Düzenleme, silme (geri alınabilir), CSV içe/dışa aktarma.
 - **Geçmiş:** ilk işlem gününden bugüne her işlem günü için portföy değeri, gerçek kapanış fiyatlarıyla yeniden hesaplanır. Uygulamanın açık olması gerekmez.
 - **Grafikler:** günün ısı haritası, hisse/sektör dağılımı, kazancın kaynağı, aylık getiriler, hisse fiyatı üzerinde alış/satış noktaları. Her grafiğin tablo görünümü vardır.
+- **Nakit düzenle:** girilen tutar o günden itibaren nakit bakiyesi olur. Fark yatırılan ya da çekilen para sayılır, kazanç gibi görünmez. İşlem listesinde görünmez, CSV yedeğinde `ADJUST` satırı olarak yer alır.
 - **Otomatik:** canlı fiyat, hisse bölünmesi düzeltmesi, kaydedilmemiş temettü önerileri.
 - **Canlı:** veriler sayfa açıkken 60 saniyede bir yenilenir.
 - **Seans dışı fiyat:** borsa kapalıyken ABD hisse, ETF ve endekslerinin açılış öncesi ve kapanış sonrası fiyatı, asıl fiyatın altında parantez içinde. Endekslerde izleyen fonun hareketine göre yaklaşıktır.

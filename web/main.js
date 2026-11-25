@@ -157,7 +157,7 @@ function emptyState() {
     h('p', null, 'Elinizdeki hisseleri alış tarihiyle ekleyin. Geçmiş değerler o günden bugüne otomatik hesaplanır.'),
     h('div', { class: 'actions' },
       h('button', { class: 'btn primary', onclick: () => openForm({ type: 'BUY' }) }, 'Hisse ekle'),
-      h('button', { class: 'btn', onclick: () => openForm({ type: 'DEPOSIT' }) }, 'Nakit ekle'),
+      h('button', { class: 'btn', onclick: () => openForm({ type: 'ADJUST' }) }, 'Nakit düzenle'),
       importButton('btn', 'CSV’den aktar')));
 }
 
@@ -249,7 +249,8 @@ function holdingsCard() {
           h('td', { class: 'num c-weight' }, state.summary.value > 0 ? f.pct1(state.summary.cash / state.summary.value) : '–'), h('td', { class: 'c-gap' }),
           h('td', { class: 'row-actions' },
             h('button', { class: 'ghost', onclick: () => openForm({ type: 'DEPOSIT' }) }, 'Ekle'),
-            h('button', { class: 'ghost', onclick: () => openForm({ type: 'WITHDRAW' }) }, 'Çek')))))));
+            h('button', { class: 'ghost', onclick: () => openForm({ type: 'WITHDRAW' }) }, 'Çek'),
+            h('button', { class: 'ghost', onclick: () => openForm({ type: 'ADJUST' }) }, 'Düzenle')))))));
   mark();
   return section;
 }
@@ -397,7 +398,8 @@ function transactionsView() {
   const rows = h('div');
   const draw = () => {
     const text = ui.txText.trim().toUpperCase().replaceAll('.', '-');
-    rows.replaceChildren(txTable(state.transactions.filter((t) => (!ui.txType || t.type === ui.txType) && (!text || (t.symbol ?? '').includes(text)))));
+    // Nakit düzeltmeleri işlem sayılmaz, listede görünmez.
+    rows.replaceChildren(txTable(state.transactions.filter((t) => t.type !== 'ADJUST' && (!ui.txType || t.type === ui.txType) && (!text || (t.symbol ?? '').includes(text)))));
   };
   draw();
   const typeSelect = h('select', { 'aria-label': 'İşlem türü', onchange: (e) => {
@@ -489,8 +491,7 @@ function symbolView(symbol) {
         d.quote && h('p', { class: 'hero-day' }, delta(dayChange, `${f.signedMoney(dayChange)} (${f.signedPct(d.quote.price / d.quote.prevClose - 1)})`), h('span', { class: 'muted' }, ` ${d.info.exchange} · ${f.sectorName(d.info)}`)),
         h('div', { class: 'actions' },
           h('button', { class: 'btn primary', onclick: () => openForm({ type: 'BUY', symbol }) }, 'Al'),
-          p && h('button', { class: 'btn', onclick: () => openForm({ type: 'SELL', symbol }) }, 'Sat'),
-          p && h('button', { class: 'btn', onclick: () => openForm({ type: 'DIVIDEND', symbol }) }, 'Temettü'))),
+          p && h('button', { class: 'btn', onclick: () => openForm({ type: 'SELL', symbol }) }, 'Sat'))),
       p ? h('div', { class: 'stats' },
         stat('Değer', f.money(p.value), `${f.qty(p.quantity)} adet`),
         stat('Ortalama maliyet', f.price(p.avgCost), `toplam ${f.money(p.cost)}`),
@@ -539,7 +540,7 @@ const bars = (() => {
     location.replace('/login.html');
   } }, icon('logout'));
   const add = [
-    h('button', { class: 'btn', onclick: () => openForm({ type: 'DEPOSIT' }) }, 'Nakit ekle'),
+    h('button', { class: 'btn', onclick: () => openForm({ type: 'ADJUST' }) }, 'Nakit düzenle'),
     h('button', { class: 'btn primary', onclick: () => openForm({ type: 'BUY' }) }, 'Hisse ekle'),
     h('button', { class: 'tab-add', onclick: () => openForm({ type: 'BUY' }) }, icon('plus', 24), h('span', null, 'Ekle')),
   ];

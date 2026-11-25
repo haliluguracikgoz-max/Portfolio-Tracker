@@ -45,6 +45,10 @@ export function cleanTx(raw, today = nyDate()) {
     if (!(fee >= 0) || fee > MAX) throw bad('Komisyon sıfır ya da daha büyük olmalı.');
     if (type === 'SELL' && fee > tx.quantity * tx.price) throw bad('Komisyon satış tutarından büyük olamaz.');
     tx.fee = fee;
+  } else if (type === 'ADJUST') {
+    const n = parseNumber(raw.amount);
+    if (n == null || !(n >= 0) || n > MAX) throw bad('Nakit miktarı sıfır ya da daha büyük bir sayı olmalı.');
+    tx.amount = n;
   } else {
     tx.amount = positive(raw.amount, 'Tutar');
   }

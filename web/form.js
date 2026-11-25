@@ -6,11 +6,12 @@ import { icon } from './icons.js';
 import { inputNumber, longDate, money, price as fmtPrice, qty as fmtQty } from './format.js';
 
 const TYPES = [
-  ['BUY', 'Hisse al'], ['SELL', 'Hisse sat'], ['DEPOSIT', 'Nakit ekle'], ['WITHDRAW', 'Nakit çek'],
-  ['DIVIDEND', 'Temettü'], ['INTEREST', 'Faiz'], ['FEE', 'Ücret'],
+  ['BUY', 'Hisse al'], ['SELL', 'Hisse sat'], ['DEPOSIT', 'Nakit ekle'], ['WITHDRAW', 'Nakit çek'], ['ADJUST', 'Nakit düzenle'],
 ];
+/** Artık eklenemeyen ama eskiden kaydedilmiş türler; yalnızca düzenlerken sekmesi görünür. */
+const OLD_TYPES = { DIVIDEND: 'Temettü', INTEREST: 'Faiz', FEE: 'Ücret' };
 const SUBMIT = {
-  BUY: 'Alışı kaydet', SELL: 'Satışı kaydet', DEPOSIT: 'Nakit ekle', WITHDRAW: 'Nakit çek', DIVIDEND: 'Temettüyü kaydet', INTEREST: 'Faizi kaydet', FEE: 'Ücreti kaydet',
+  BUY: 'Alışı kaydet', SELL: 'Satışı kaydet', DEPOSIT: 'Nakit ekle', WITHDRAW: 'Nakit çek', ADJUST: 'Nakiti güncelle', DIVIDEND: 'Temettüyü kaydet', INTEREST: 'Faizi kaydet', FEE: 'Ücreti kaydet',
 };
 
 /**
@@ -55,6 +56,9 @@ export function openTxForm({ state, preset = {}, edit = null, onSaved }) {
   const priceField = field('Birim fiyat ($)', price, priceHint);
   const feeField = field('Komisyon ($)', fee);
   const amountField = field('Tutar ($)', amount);
+  const amountLabel = amountField.querySelector('label');
+  // Nakit düzenlemede alan, şu anki nakitle dolu açılır; kullanıcı doğrusunu yazar.
+  let adjustFill = null;
   const dateField = field('Tarih', date);
   const noteField = field('Not (isteğe bağlı)', note);
   noteField.classList.add('wide');
@@ -73,15 +77,28 @@ export function openTxForm({ state, preset = {}, edit = null, onSaved }) {
   const preview = h('div', { class: 'preview wide', 'aria-live': 'polite' });
   const error = h('p', { class: 'error wide', role: 'alert', hidden: true });
   const submit = h('button', { class: 'btn primary', type: 'submit' });
+  const title = h('h2');
   const tabs = h('div', { class: 'type-tabs wide', role: 'group', 'aria-label': 'İşlem türü' });
 
   const isTrade = () => type === 'BUY' || type === 'SELL';
   const cleanSymbol = () => symbol.value.trim().toUpperCase().replaceAll('.', '-');
   const held = () => positions.find((p) => p.symbol === cleanSymbol());
 
+  /** Dar ekranda sekme satırı yana kayar; seçili sekme görünür kalsın. */
+  function showTab() {
+    const on = tabs.querySelector('[aria-pressed="true"]');
+    if (!on) return;
+    const box = tabs.getBoundingClientRect();
+    const r = on.getBoundingClientRect();
+    if (r.right > box.right) tabs.scrollLeft += r.right - box.right + 16;
+    else if (r.left < box.left) tabs.scrollLeft -= box.left - r.left + 16;
+  }
+
   function renderType() {
+    // Kayıtlı bir işlem nakit düzeltmesine çevrilemez.
+    const types = !edit ? TYPES : [...TYPES.filter(([key]) => key !== 'ADJUST'), ...(OLD_TYPES[edit.type] ? [[edit.type, OLD_TYPES[edit.type]]] : [])];
     tabs.replaceChildren(
-      ...TYPES.map(([key, label]) =>
+      ...types.map(([key, label]) =>
         h('button', { type: 'button', class: 'chip', 'aria-pressed': String(key === type), onclick: () => {
           type = key;
           renderType();
@@ -92,12 +109,19 @@ export function openTxForm({ state, preset = {}, edit = null, onSaved }) {
     symbolField.hidden = !(isTrade() || type === 'DIVIDEND');
     quantityField.hidden = priceField.hidden = feeField.hidden = settleField.hidden = !isTrade();
     amountField.hidden = isTrade();
+    dateField.hidden = type === 'ADJUST';
+    amountLabel.textContent = type === 'ADJUST' ? 'Güncel nakit miktarı ($)' : 'Tutar ($)';
+    if (type === 'ADJUST' && !amount.value.trim()) amount.value = adjustFill = inputNumber(Number(cash.toFixed(2)));
+    else if (type !== 'ADJUST' && adjustFill != null && amount.value === adjustFill) amount.value = '';
+    if (type !== 'ADJUST') adjustFill = null;
     cashText.textContent = type === 'SELL' ? 'Satış tutarını portföy nakdine ekle' : 'Portföy nakdinden öde';
     externalText.textContent = type === 'SELL' ? 'Portföyden dışarı çıktı, nakde ekleme' : 'Dışarıdan ödendi, nakde dokunma';
     submit.textContent = edit ? 'Değişikliği kaydet' : SUBMIT[type];
+    title.textContent = edit ? 'İşlemi düzenle' : type === 'ADJUST' ? 'Nakit düzenle' : 'İşlem ekle';
     error.hidden = true;
     closeList();
     updateHints();
+    showTab();
   }
 
   function updateHints() {
@@ -133,6 +157,12 @@ export function openTxForm({ state, preset = {}, edit = null, onSaved }) {
         cells.push(cell(type === 'BUY' ? 'Toplam maliyet' : 'Ele geçen', money(total)));
         delta = viaCash.checked ? (type === 'BUY' ? -total : total) : 0;
       }
+    } else if (type === 'ADJUST') {
+      const a = parseNumber(amount.value);
+      if (a >= 0) {
+        cells.push(cell('Şu anki nakit', money(cash)), cell('Fark', `${Math.abs(a - cash) < 0.005 ? '' : a > cash ? '+' : '−'}${money(Math.abs(a - cash))}`));
+        cells.push(h('p', { class: 'note' }, 'Nakit bakiyesi doğrudan bu tutara eşitlenir. İşlem listesinde ayrı bir işlem olarak görünmez.'));
+      }
     } else {
       const a = parseNumber(amount.value);
       if (a > 0) delta = type === 'WITHDRAW' || type === 'FEE' ? -a : a;
@@ -143,6 +173,7 @@ export function openTxForm({ state, preset = {}, edit = null, onSaved }) {
       preview.classList.toggle('short', after < -0.005);
       if (after < -0.005) cells.push(h('p', null, isTrade() ? 'Portföydeki nakit yetmiyor. “Dışarıdan ödendi” seçeneğini kullanın ya da önce nakit ekleyin.' : 'Portföydeki nakit yetmiyor.'));
     }
+    if (delta == null) preview.classList.remove('short');
     preview.replaceChildren(...cells);
     preview.hidden = cells.length === 0;
   }
@@ -246,7 +277,7 @@ export function openTxForm({ state, preset = {}, edit = null, onSaved }) {
   for (const el of [quantity, price, fee, amount, viaCash, viaExternal]) el.addEventListener('input', updateHints);
 
   const form = h('form', { novalidate: true },
-    h('div', { class: 'dialog-head' }, h('h2', null, edit ? 'İşlemi düzenle' : 'İşlem ekle'), h('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Kapat', onclick: () => dialog.close() }, icon('close'))),
+    h('div', { class: 'dialog-head' }, title, h('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Kapat', onclick: () => dialog.close() }, icon('close'))),
     h('div', { class: 'form-grid' }, tabs, symbolField, dateField, quantityField, priceField, amountField, feeField, settleField, noteField, preview, error),
     h('div', { class: 'dialog-foot' }, h('button', { type: 'button', class: 'btn', onclick: () => dialog.close() }, 'Vazgeç'), submit),
   );
@@ -258,14 +289,14 @@ export function openTxForm({ state, preset = {}, edit = null, onSaved }) {
     submit.disabled = true;
     error.hidden = true;
     const body = {
-      type, date: date.value, symbol: cleanSymbol(), quantity: quantity.value, price: price.value, amount: amount.value, fee: fee.value,
+      type, date: type === 'ADJUST' ? nyDate() : date.value, symbol: cleanSymbol(), quantity: quantity.value, price: price.value, amount: amount.value, fee: fee.value,
       settle: viaExternal.checked ? 'EXTERNAL' : 'CASH', note: note.value,
     };
     try {
       if (edit) await api.updateTx(edit.id, body);
       else await api.addTx(body);
       dialog.close();
-      onSaved(edit ? 'İşlem güncellendi.' : 'İşlem kaydedildi.');
+      onSaved(type === 'ADJUST' ? 'Nakit güncellendi.' : edit ? 'İşlem güncellendi.' : 'İşlem kaydedildi.');
     } catch (err) {
       error.textContent = err.message;
       error.hidden = false;
@@ -291,6 +322,7 @@ export function openTxForm({ state, preset = {}, edit = null, onSaved }) {
   document.body.append(dialog);
   renderType();
   dialog.showModal();
+  showTab();
   focus(symbolField.hidden ? amount : symbol.value ? quantity : symbol);
   fetchPrice();
 }
