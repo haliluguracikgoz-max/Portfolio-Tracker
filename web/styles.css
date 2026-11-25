@@ -191,6 +191,16 @@ main > .side .watch-remove { position: absolute; top: -7px; right: -5px; border:
 .delta { white-space: nowrap; }
 .delta.gain { color: var(--gain-ink); }
 .delta.loss { color: var(--loss-ink); }
+/* Seans dışı fiyat, asıl fiyatın altında. */
+.ext { display: block; font-size: 12px; font-weight: 400; white-space: nowrap; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.ext.gain { color: var(--gain-ink); }
+.ext.loss { color: var(--loss-ink); }
+.ext i { font-style: normal; }
+.holdings .ext i { display: none; }
+.hero-ext { margin-top: 2px; }
+.hero-ext .ext { display: inline; font-size: 16px; }
+.watch li .ext { grid-column: 1 / -1; }
+.shell > .side li .ext { text-align: right; }
 
 .range-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 20px; margin-bottom: 14px; }
 .range-summary { color: var(--ink-2); }
@@ -398,6 +408,7 @@ input::placeholder { color: var(--ink-3); }
   main > .side .sector .watch-name { font-size: 13px; font-weight: 620; }
   main > .side .sector .watch-symbol { display: block; font-size: 11px; }
   main > .side .watch-value { margin-top: 0; font-size: 15px; }
+  main > .side .ext i { display: none; }
   .watch-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 8px max(16px, env(safe-area-inset-right)) 20px max(16px, env(safe-area-inset-left)); }
   .watch-results li { grid-template-columns: minmax(0, 1fr) auto; gap: 0 12px; }
   .watch-results small { grid-area: 2 / 1; text-align: left; }

@@ -6,7 +6,8 @@ import { Auth, hashPassword, newSetupCode } from '../server/auth.js';
 import { fromCsv, toCsv } from '../server/csv.js';
 import { openDb } from '../server/db.js';
 import { LedgerError, validateLedger } from '../server/ledger.js';
-import { Market, normalizeSymbol, parseChart, previousClose } from '../server/market.js';
+import { Market, MarketError, normalizeSymbol, parseChart, previousClose } from '../server/market.js';
+import { Extended, extendedSource } from '../server/extended.js';
 import { DEFAULTS, parseCnbc, parseSpark, Watch } from '../server/watch.js';
 import { addMonths, isDate, nyDate } from '../shared/dates.js';
 import { parseNumber } from '../shared/number.js';
@@ -527,4 +528,84 @@ test('piyasa paneli: sektör ETF listesi hazır gelir, sektör adı yalnızca or
   watch.remove('sector', 'yahoo:XLK');
   assert.equal((await watch.add('sector', 'yahoo:XLK')).sector.items.at(-1).name, 'Teknoloji');
   assert.equal((await watch.add('etf', 'yahoo:XLK')).etf.items.at(-1).name, 'XLK adı');
+});
+
+const extQuote = (symbol, last, lastTime, status, e = null, more = {}) => ({
+  symbol, last, last_time: lastTime, curmktstatus: status, countryCode: 'US', type: 'STOCK',
+  ExtendedMktQuote: e && { type: e[0], last: e[1], last_time: e[2] }, ...more,
+});
+function makeExtended(quotes) {
+  const src = { quotes, calls: [] };
+  const extended = new Extended(async (url) => {
+    const codes = decodeURIComponent(/symbols=([^&]+)/.exec(url)[1]).split('|');
+    src.calls.push(codes);
+    if (src.fail) throw new MarketError('kapalı');
+    return { FormattedQuoteResult: { FormattedQuote: src.quotes.filter((q) => codes.includes(q.symbol)) } };
+  });
+  return { extended, src };
+}
+
+test('seans dışı fiyat: yalnızca borsa kapalıyken ve son seanstan sonraki işlem gösterilir', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-11-25T20:30:00Z') });
+  const close = '2026-11-25T16:00:00.000-0500';
+  const { extended, src } = makeExtended([
+    extQuote('SPY', '715.00', close, 'REG_MKT', ['PRE_MKT', '703.17', '2026-11-25T09:30:00.013-0500']),
+    extQuote('AAPL', '350.00', close, 'REG_MKT'),
+  ]);
+  await extended.load(['AAPL']);
+  assert.deepEqual(src.calls, [['SPY']], 'borsa açıkken diğerleri hiç sorulmaz');
+  assert.equal(extended.of('SPY'), null);
+
+  t.mock.timers.setTime(Date.parse('2026-11-25T21:30:00Z'));
+  const post = '2026-11-25T16:29:00.000-0500';
+  src.quotes = [
+    extQuote('SPY', '715.00', close, 'POST_MKT', ['POST_MKT', '716.43', post]),
+    extQuote('AAPL', '350.00', close, 'POST_MKT', ['POST_MKT', '353.50', post]),
+    extQuote('BRK.B', '500.00', close, 'POST_MKT', ['PRE_MKT', '490.00', '2026-11-25T09:29:00.000-0500']),
+    extQuote('FUND', '10', '2026-11-25', 'POST_MKT', ['POST_MKT', '11', post], { type: 'FUND' }),
+  ];
+  await extended.load(['AAPL', 'BRK-B', 'FUND', 'YOK']);
+  assert.deepEqual(extended.of('AAPL'), { price: 353.5, pct: 353.5 / 350 - 1, at: Date.parse('2026-11-25T21:29:00Z'), session: 'post' });
+  near(extended.of('AAPL', 351).pct, 353.5 / 351 - 1);
+  assert.equal(extended.of('BRK-B'), null, 'sabahki açılış öncesi işlem kapanıştan sonra eskidir');
+  assert.deepEqual([extended.of('FUND'), extended.of('YOK')], [null, null]);
+
+  // Aradan geçen tatilden sonra, bir sonraki seansın açılış öncesi.
+  t.mock.timers.setTime(Date.parse('2026-11-27T10:00:00Z'));
+  src.quotes = [
+    extQuote('SPY', '715.00', close, 'PRE_MKT', ['PRE_MKT', '720.00', '2026-11-27T04:59:00.000-0500']),
+    extQuote('AAPL', '350.00', close, 'PRE_MKT', ['POST_MKT', '353.50', post]),
+    extQuote('BRK.B', '500.00', close, 'PRE_MKT', ['PRE_MKT', '505.00', '2026-11-27T04:50:00.000-0500']),
+  ];
+  await extended.load(['AAPL', 'BRK-B']);
+  assert.equal(extended.of('BRK-B').session, 'pre');
+  assert.equal(extended.of('AAPL').price, 353.5);
+
+  // Servis kesilirse eski fiyat ekranda kalmaz.
+  src.fail = true;
+  t.mock.timers.setTime(Date.parse('2026-11-27T10:06:00Z'));
+  await extended.load(['AAPL']);
+  assert.equal(extended.of('AAPL'), null);
+});
+
+test('seans dışı fiyat: panelde yalnızca ABD hisse, ETF ve endekslerine eklenir', async () => {
+  assert.equal(extendedSource({ id: 'yahoo:BTC-USD', unit: 'usd' }), null);
+  assert.equal(extendedSource({ id: 'yahoo:GC=F', unit: 'usd' }), null);
+  assert.equal(extendedSource({ id: 'yahoo:XU100.IS', unit: 'plain' }), null);
+  assert.equal(extendedSource({ id: 'cnbc:US10Y', unit: 'yield' }), null);
+  const { extended } = makeExtended([
+    extQuote('SPY', '700', '2026-11-25T16:00:00.000-0500', 'POST_MKT', ['POST_MKT', '707', '2026-11-25T17:00:00.000-0500']),
+    extQuote('QQQ', '600', '2026-11-25T16:00:00.000-0500', 'POST_MKT', ['POST_MKT', '594', '2026-11-25T17:00:00.000-0500']),
+  ]);
+  const { src } = makeWatch();
+  const watch = new Watch(openDb(':memory:'), {
+    getYahoo: async () => src.spark(), extended,
+    getCnbc: async () => ({ FormattedQuoteResult: { FormattedQuote: [{ symbol: '.SPX', last: '7,000.00', previous_day_closing: '6,900.00', realTime: 'true' }] } }),
+  });
+  const r = await watch.get();
+  near(r.index.items[0].ext.price, 7070);
+  assert.equal(r.index.items[0].ext.via, 'SPY');
+  assert.equal(r.index.items[1].ext, undefined, 'endeks değeri yoksa tahmin de yok');
+  assert.equal(r.etf.items.find((x) => x.symbol === 'QQQ').ext.price, 594);
+  assert.ok(r.other.items.every((x) => !x.ext));
 });

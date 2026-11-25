@@ -52,9 +52,10 @@ export function cleanTx(raw, today = nyDate()) {
 }
 
 export class App {
-  constructor(db, market) {
+  constructor(db, market, extended = null) {
     this.db = db;
     this.market = market;
+    this.extended = extended;
     this.txs = new TxStore(db);
   }
 
@@ -89,9 +90,12 @@ export class App {
 
   async state(force = false) {
     const txs = this.txs.all();
-    const warnings = await this.refresh(txs, force);
+    const held = [...new Set(txs.map((t) => t.symbol).filter(Boolean))];
+    const [warnings] = await Promise.all([this.refresh(txs, force), this.extended?.load(held, { force })]);
+    const result = compute(txs, this.market.snapshot(), nyDate());
+    for (const p of result.positions) p.ext = this.extended?.of(p.symbol, p.price) ?? null;
     return {
-      ...compute(txs, this.market.snapshot(), nyDate()),
+      ...result,
       transactions: txs,
       asOf: Date.now(),
       marketOpen: this.market.isOpen(),
@@ -193,11 +197,12 @@ export class App {
     const txs = this.txs.all().filter((t) => t.symbol === symbol);
     const fiveYears = addMonths(nyDate(), -60);
     const from = txs.length && txs[0].date < fiveYears ? txs[0].date : fiveYears;
-    await this.#ensureSymbol({ symbol, date: from });
+    await Promise.all([this.#ensureSymbol({ symbol, date: from }), this.extended?.load([symbol])]);
     const splits = this.market.splits(symbol);
     return {
       info: this.market.info(symbol),
       quote: this.market.quote(symbol),
+      ext: this.extended?.of(symbol, this.market.quote(symbol)?.price) ?? null,
       prices: this.market.closes(symbol),
       transactions: txs.map((t) => ({ ...t, factor: splitFactor(splits, t.date) })),
     };

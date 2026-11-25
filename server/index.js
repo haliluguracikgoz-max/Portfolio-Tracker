@@ -7,6 +7,7 @@ import { App, HttpError } from './app.js';
 import { Auth, hashPassword, MAX_PASSWORD, MIN_PASSWORD, newSetupCode } from './auth.js';
 import { defaultDbPath, getSetting, openDb, setSetting } from './db.js';
 import { BENCH, Market, MarketError } from './market.js';
+import { Extended } from './extended.js';
 import { Watch } from './watch.js';
 
 const PORT = Number(process.env.PORT ?? 4517);
@@ -35,8 +36,9 @@ let watch = null;
 if (!setupProblems.length) {
   const dbPath = defaultDbPath();
   db = openDb(dbPath);
-  app = new App(db, new Market(db));
-  watch = new Watch(db);
+  const extended = new Extended();
+  app = new App(db, new Market(db), extended);
+  watch = new Watch(db, { extended });
   if (process.env.WATCH_IMPORT) {
     try {
       const added = watch.importOnce(process.env.WATCH_IMPORT);
@@ -233,7 +235,8 @@ async function checkPriceService() {
   }
   for (const [list, { items, error }] of Object.entries(await watch.get())) {
     const ready = items.filter((x) => x.value != null).length;
-    (error ? console.error : console.log)(`Piyasa paneli ${list}: ${ready}/${items.length} satır${error ? `, ${error}` : ''}`);
+    const ext = items.filter((x) => x.ext).length;
+    (error ? console.error : console.log)(`Piyasa paneli ${list}: ${ready}/${items.length} satır${ext ? `, ${ext} seans dışı fiyat` : ''}${error ? `, ${error}` : ''}`);
   }
 }
 for (const signal of ['SIGTERM', 'SIGINT']) process.on(signal, () => process.exit(0));

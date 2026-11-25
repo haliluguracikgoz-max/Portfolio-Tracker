@@ -1,5 +1,6 @@
 import { api } from './api.js';
 import { h, newId } from './dom.js';
+import { extPrice } from './ext.js';
 import * as f from './format.js';
 import { icon } from './icons.js';
 
@@ -92,6 +93,7 @@ export function createWatch({ toast }) {
           h('span', { class: 'watch-symbol' }, LISTS[list].symbolFirst ? x.name : x.symbol, x.delayed && h('span', { title: 'Yaklaşık 10 dakika gecikmeli' }, ' · gecikmeli')),
           h('span', { class: 'watch-value' }, x.value == null ? '–' : f.watchValue(x)),
           h('span', { class: 'watch-change' }, change(x)),
+          extPrice(x.ext, (value) => f.watchValue({ ...x, value })),
           editing && h('button', { class: 'watch-remove', 'data-key': x.id, 'aria-label': `${heading(list, x)}: çıkar`, onclick: () => remove(list, x) }, icon('close', 16)))))
         : h('p', { class: 'muted watch-empty' }, data ? (list === 'stocks' ? 'Henüz hisse yok. “Ekle” ile izlemek istediğiniz hisse ve ETF’leri ekleyin.' : 'Liste boş. “Ekle” ile başlayın.') : failed ? 'Veriler alınamadı. Yeniden denenecek.' : 'Yükleniyor…'),
       items.length > 0 && data[list].asOf && h('p', { class: `watch-foot${bad ? ' bad' : ''}` }, bad ? `Güncellenemedi. Son veri ${f.clock(data[list].asOf)}` : f.clock(data[list].asOf)),
@@ -106,7 +108,10 @@ export function createWatch({ toast }) {
       const x = items[i];
       const [, value, note] = el.children;
       value.replaceChildren(x.changePct == null ? '–' : change(x));
-      note.textContent = (failed || error) && asOf ? `Son veri ${f.clock(asOf)}` : x.value == null ? '' : f.watchValue(x);
+      note.replaceChildren(...[
+        (failed || error) && asOf ? `Son veri ${f.clock(asOf)}` : x.value == null ? '' : f.watchValue(x),
+        extPrice(x.ext, (v) => f.watchValue({ ...x, value: v })),
+      ].filter(Boolean));
     });
   }
 

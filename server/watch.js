@@ -1,12 +1,13 @@
 import { createHash } from 'node:crypto';
 import { HttpError } from './app.js';
+import { cnbc, number, quotesOf, quoteUrl } from './cnbc.js';
 import { getSetting, setSetting } from './db.js';
+import { extendedSource } from './extended.js';
 import { MarketError, normalizeSymbol, US_EXCHANGES, yahoo } from './market.js';
 
 const TTL = 30_000;
 const MAX_ITEMS = 50;
 const YAHOO_BATCH = 20;
-const CNBC_QUOTE = 'https://quote.cnbc.com/quote-html-webservice/restQuote/symbolType/symbol';
 const CNBC_SEARCH = 'https://symlookup.cnbc.com/symservice/symlookup.do';
 
 const item = (id, symbol, name, unit) => ({ id, symbol, name, unit });
@@ -104,21 +105,6 @@ const validId = (id) => typeof id === 'string' && /^(yahoo:[A-Z0-9^][A-Z0-9^=.&-
 const chunks = (list, n) => Array.from({ length: Math.ceil(list.length / n) }, (_, i) => list.slice(i * n, i * n + n));
 const letters = (s) => s.replace(/[^A-Z0-9]/gi, '').toUpperCase();
 
-async function cnbc(url) {
-  let res;
-  try {
-    res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(10_000) });
-  } catch {
-    throw new MarketError('Piyasa verisi servisine ulaşılamadı.');
-  }
-  if (!res.ok) throw new MarketError(`Piyasa verisi servisi yanıt vermedi (HTTP ${res.status}).`);
-  return res.json();
-}
-
-const number = (text) => {
-  const s = String(text ?? '').replace(/[%,\s]/g, '');
-  return /^-?\d+(\.\d+)?$/.test(s) ? Number(s) : null;
-};
 /** Değişim her zaman önceki kapanıştan hesaplanır; CNBC'nin yüzde alanı faizlerde tutarsızdır. */
 const quote = (value, prev, delayed) => ({
   value,
@@ -129,9 +115,8 @@ const quote = (value, prev, delayed) => ({
 
 /** CNBC yanıtı → Map(kod → kotasyon). */
 export function parseCnbc(json) {
-  const list = json?.FormattedQuoteResult?.FormattedQuote;
   const out = new Map();
-  for (const q of Array.isArray(list) ? list : []) {
+  for (const q of quotesOf(json)) {
     const value = number(q.last);
     if (value == null) continue;
     out.set(q.symbol, {
@@ -157,15 +142,17 @@ export class Watch {
   #db;
   #yahoo;
   #cnbc;
+  #extended;
   #quotes = new Map();
   #providers = { yahoo: { asOf: 0, error: null }, cnbc: { asOf: 0, error: null } };
   #triedAt = -Infinity;
   #inflight = null;
 
-  constructor(db, { getYahoo = yahoo, getCnbc = cnbc } = {}) {
+  constructor(db, { getYahoo = yahoo, getCnbc = cnbc, extended = null } = {}) {
     this.#db = db;
     this.#yahoo = getYahoo;
     this.#cnbc = getCnbc;
+    this.#extended = extended;
   }
 
   #items(list) {
@@ -187,12 +174,22 @@ export class Watch {
     const view = (items) => {
       const used = [...new Set(items.flatMap((x) => partsOf(x.id)).map((id) => splitId(id)[0]))].map((p) => this.#providers[p]);
       return {
-        items: items.map((x) => ({ ...x, value: null, change: null, changePct: null, delayed: false, ...this.#quote(x.id) })),
+        items: items.map((x) => ({ ...x, value: null, change: null, changePct: null, delayed: false, ...this.#quote(x.id), ...this.#ext(x) })),
         asOf: used.length ? Math.min(...used.map((p) => p.asOf)) || null : null,
         error: used.find((p) => p.error)?.error ?? null,
       };
     };
     return { ...Object.fromEntries(Object.keys(DEFAULTS).map((list) => [list, view(this.#items(list))])), index: view(INDEXES) };
+  }
+
+  /** Borsa kapalıyken ABD hisse, ETF ve endekslerinin seans dışı fiyatı. */
+  #ext(x) {
+    const from = extendedSource(x);
+    const value = this.#quote(x.id)?.value;
+    const ext = from && this.#extended?.of(from.symbol, from.index ? null : value);
+    if (!ext) return null;
+    if (!from.index) return { ext };
+    return value == null ? null : { ext: { ...ext, price: value * (1 + ext.pct), via: from.symbol } };
   }
 
   #quote(id) {
@@ -206,7 +203,8 @@ export class Watch {
 
   async #refresh() {
     this.#triedAt = Date.now();
-    const ids = [...new Set([...INDEXES, ...Object.keys(DEFAULTS).flatMap((list) => this.#items(list))].flatMap((x) => partsOf(x.id)))];
+    const items = [...INDEXES, ...Object.keys(DEFAULTS).flatMap((list) => this.#items(list))];
+    const ids = [...new Set(items.flatMap((x) => partsOf(x.id)))];
     const codes = (provider) => ids.map(splitId).filter(([p]) => p === provider).map(([, code]) => code);
     const run = async (provider, fetchQuotes) => {
       const wanted = codes(provider);
@@ -224,7 +222,7 @@ export class Watch {
         state.error = e instanceof MarketError ? e.message : 'Piyasa verisi okunamadı.';
       }
     };
-    await Promise.all([run('yahoo', (c) => this.#yahooQuotes(c)), run('cnbc', (c) => this.#cnbcQuotes(c))]);
+    await Promise.all([run('yahoo', (c) => this.#yahooQuotes(c)), run('cnbc', (c) => this.#cnbcQuotes(c)), this.#extended?.load(items.map((x) => extendedSource(x)?.symbol).filter(Boolean))]);
   }
 
   #remember(id, { value, change, changePct, delayed }) {
@@ -235,7 +233,7 @@ export class Watch {
     return new Map(parts.flatMap((p) => [...parseSpark(p)]));
   }
   async #cnbcQuotes(codes) {
-    return parseCnbc(await this.#cnbc(`${CNBC_QUOTE}?symbols=${encodeURIComponent(codes.join('|'))}&requestMethod=itv&noform=1&partnerId=2&fund=1&exthrs=1&output=json`));
+    return parseCnbc(await this.#cnbc(quoteUrl(codes)));
   }
 
   async search(list, q) {
@@ -292,6 +290,7 @@ export class Watch {
     if (info.value != null) this.#remember(clean, info);
     this.#providers[provider].asOf ||= Date.now();
     const entry = known(clean, list) ?? item(clean, code.replace(/^[.@]/, ''), String(info.name ?? code).slice(0, 80), info.unit);
+    await this.#extended?.load([extendedSource(entry)?.symbol].filter(Boolean));
     // Veri beklenirken liste değişmiş olabilir.
     this.#save(list, [...check(), entry]);
     return this.#snapshot();
