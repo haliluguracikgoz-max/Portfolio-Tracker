@@ -1,19 +1,18 @@
 // Sayfa çizilmeden önce çalışır ki tema değişimi göz kırpmasın.
 (() => {
   const root = document.documentElement;
-  const system = matchMedia('(prefers-color-scheme: dark)');
   // Telefonun durum çubuğu, uygulamada seçilen temayla aynı renkte olsun.
   const paintStatusBar = () => {
-    const dark = root.dataset.theme ? root.dataset.theme === 'dark' : system.matches;
-    document.querySelector('meta[name="theme-color"]').content = dark ? '#141b26' : '#ffffff';
+    document.querySelector('meta[name="theme-color"]').content = root.dataset.theme === 'light' ? '#ffffff' : '#141b26';
   };
+  let saved = null;
   try {
-    const saved = localStorage.getItem('theme');
-    if (saved === 'light' || saved === 'dark') root.dataset.theme = saved;
+    saved = localStorage.getItem('theme');
   } catch {
-    // Depolama kapalıysa sistem teması geçerlidir.
+    // Depolama kapalıysa varsayılan tema geçerlidir.
   }
+  // Seçim yapılmadıysa sistem ayarından bağımsız olarak koyu tema açılır.
+  root.dataset.theme = saved === 'light' ? 'light' : 'dark';
   paintStatusBar();
-  system.addEventListener('change', paintStatusBar);
   new MutationObserver(paintStatusBar).observe(root, { attributeFilter: ['data-theme'] });
 })();

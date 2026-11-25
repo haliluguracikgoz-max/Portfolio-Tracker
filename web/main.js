@@ -1,4 +1,4 @@
-import { rangeBaseDate, RANGES, monthlyReturns, sliceRange } from '/shared/range.js';
+import { rangeBaseDate, RANGES, monthlyReturns } from '/shared/range.js';
 import { parseNumber } from '/shared/number.js';
 import { api } from './api.js';
 import { columnChart, legend, lineChart, sparkline, treemap } from './charts.js';
@@ -155,21 +155,7 @@ function emptyState() {
 function overview() {
   const watchInline = wideScreen.matches ? [] : [watch.left, watch.right];
   if (!state.transactions.length) return [emptyState(), ...watchInline];
-  const { summary: m, history, positions } = state;
-  const r = sliceRange(history, state.base, ui.range);
-  const rangeTitle = RANGES.find((x) => x.key === ui.range).title;
-  const C = { portfolio: 'var(--series-1)', bench: 'var(--series-2)', muted: 'var(--ink-3)' };
-
-  const valueSeries = [
-    { label: 'Portföy değeri', color: C.portfolio, values: r.value, area: true },
-    { label: 'Yatırılan net para', color: C.muted, values: r.contributed, step: true },
-  ];
-  const perfSeries = [
-    { label: 'Portföy', color: C.portfolio, values: r.portfolio },
-    { label: 'S&P 500', color: C.bench, values: r.bench },
-  ];
-  const ddSeries = [{ label: 'Zirveden düşüş', color: C.portfolio, values: r.drawdown, area: true }];
-
+  const { summary: m, positions } = state;
   return [
     h('section', { class: 'hero' },
       h('div', { class: 'hero-main' },
@@ -183,33 +169,10 @@ function overview() {
         stat('Temettü ve faiz', f.money(m.dividends + m.interest), null),
         stat('Yıllık getiri (XIRR)', m.xirr == null ? '–' : f.signedPct(m.xirr), m.xirr == null ? '1 yıl dolunca' : 'para ağırlıklı'))),
 
-    // Dönem seçimi varlıkları etkilemez; etkilediği grafiklerin hemen üstünde durur.
     positions.length > 0 && holdingsCard(),
     ...watchInline,
 
-    h('div', { class: 'range-row' }, rangePicker('Dönem'), h('p', { class: 'range-summary' },
-      h('span', null, rangeTitle, ': '), delta(r.gain, f.signedMoney(r.gain)),
-      h('span', null, ' · getiri '), h('b', null, f.signedPct(r.twr)),
-      r.benchReturn != null && [h('span', null, ' · S&P 500 '), h('b', null, f.signedPct(r.benchReturn))],
-      h('span', null, ' · en büyük düşüş '), h('b', null, f.pct(r.maxDrawdown)))),
-
     h('div', { class: 'grid' },
-      card({
-        id: 'perf', title: 'S&P 500 ile karşılaştırma', sub: 'Para giriş çıkışından arındırılmış getiri. Endeks temettüsüz.', legendOf: perfSeries,
-        chart: () => lineChart({ dates: r.returnDates, series: perfSeries, format: f.signedPct, axis: f.axisPct, label: 'Portföy ve S&P 500 getirisi', endLabel: f.signedPct }),
-        table: () => seriesTable(r.returnDates, perfSeries, f.signedPct),
-      }),
-      card({
-        id: 'dd', title: 'Zirveden düşüş', sub: 'Dönem içindeki en yüksek noktaya göre',
-        chart: () => lineChart({ dates: r.returnDates, series: ddSeries, format: f.pct, axis: f.axisPct, zero: true, label: 'Zirveden düşüş grafiği' }),
-        table: () => seriesTable(r.returnDates, ddSeries, f.pct),
-      }),
-      card({
-        id: 'value', title: 'Portföy değeri', wide: true, legendOf: valueSeries,
-        sub: r.netFlow ? `Dönemde net para ${r.netFlow > 0 ? 'girişi' : 'çıkışı'}: ${f.money(Math.abs(r.netFlow))}` : 'Dönemde para girişi ya da çıkışı yok',
-        chart: () => lineChart({ dates: r.dates, series: valueSeries, format: f.money, axis: f.axisMoney, height: 340, label: 'Portföy değeri zaman grafiği' }),
-        table: () => seriesTable(r.dates, valueSeries, f.money),
-      }),
       positions.length > 0 && heatCard(),
       allocationCard(),
       gainCard(),
@@ -528,10 +491,7 @@ function route() {
   return { name: location.hash === '#/islemler' ? 'tx' : 'home' };
 }
 
-const isDark = () => {
-  const t = document.documentElement.dataset.theme;
-  return t ? t === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
-};
+const isDark = () => document.documentElement.dataset.theme === 'dark';
 
 // Çubuklar bir kez kurulur; her yenilemede yalnızca değişen parçaları güncellenir.
 const bars = (() => {

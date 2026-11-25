@@ -10,7 +10,7 @@ import { Market, normalizeSymbol, parseChart } from '../server/market.js';
 import { DEFAULTS, parseCnbc, parseSpark, Watch } from '../server/watch.js';
 import { addMonths, isDate, nyDate } from '../shared/dates.js';
 import { parseNumber } from '../shared/number.js';
-import { monthlyReturns, sliceRange } from '../shared/range.js';
+import { monthlyReturns, rangeBaseDate } from '../shared/range.js';
 
 let nextId = 1;
 const tx = (date, type, rest = {}) => ({
@@ -149,23 +149,10 @@ test('temettü önerisi: ex-date öncesi adet esas alınır, kayıtlı olan atla
   assert.equal(done.dividendSuggestions.length, 0);
 });
 
-test('dönem: getiri, net akış ve düşüş tabana göre hesaplanır', () => {
-  const h = [
-    { date: '2026-01-02', value: 100, contributed: 100, index: 1, bench: 100 },
-    { date: '2026-02-02', value: 150, contributed: 120, index: 1.2, bench: 110 },
-    { date: '2026-02-27', value: 130, contributed: 120, index: 1.08, bench: 121 },
-    { date: '2026-03-02', value: 140, contributed: 120, index: 1.14, bench: 121 },
-  ];
-  const r = sliceRange(h, { date: '2025-12-31', bench: 99 }, '1M');
-  assert.deepEqual(r.dates, ['2026-02-02', '2026-02-27', '2026-03-02']);
-  near(r.gain, -10);
-  near(r.twr, 1.14 / 1.2 - 1);
-  near(r.benchReturn, 0.1);
-  near(r.maxDrawdown, 1.08 / 1.2 - 1);
-  const all = sliceRange(h, { date: '2025-12-31', bench: 99 }, 'ALL');
-  near(all.gain, 20);
-  assert.equal(all.returnDates[0], '2025-12-31');
-  assert.equal(all.dates[0], '2026-01-02');
+test('dönem taban günü', () => {
+  assert.equal(rangeBaseDate('1M', '2026-03-02'), '2026-02-02');
+  assert.equal(rangeBaseDate('YTD', '2026-03-02'), '2025-12-31');
+  assert.equal(rangeBaseDate('ALL', '2026-03-02'), null);
 });
 
 test('aylık getiriler bileşik olarak toplam getiriye eşittir', () => {

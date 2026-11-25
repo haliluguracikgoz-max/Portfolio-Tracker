@@ -23,55 +23,6 @@ export function rangeBaseDate(key, lastDate) {
   }
 }
 
-/**
- * Geçmişi seçilen döneme indirger. Getiriler ve düşüş, dönemin taban noktasına göre
- * yeniden hesaplanır; portföy dönemden gençse taban, ilk işlemden önceki gündür.
- */
-export function sliceRange(history, base, key) {
-  if (!history.length) return null;
-  const last = history.at(-1);
-  const from = rangeBaseDate(key, last.date);
-  let i = -1;
-  if (from) while (i + 1 < history.length && history[i + 1].date <= from) i++;
-
-  const origin =
-    i >= 0
-      ? history[i]
-      : { date: base && base.date < history[0].date ? base.date : addDays(history[0].date, -1), value: 0, contributed: 0, index: 1, bench: base?.bench ?? history[0].bench };
-  const points = history.slice(i + 1);
-  const all = i >= 0 ? [origin, ...points] : points;
-
-  const pct = (v, v0) => (v != null && v0 ? v / v0 - 1 : null);
-  let peak = origin.index;
-  let maxDrawdown = 0;
-  const drawdown = [];
-  for (const p of points) {
-    peak = Math.max(peak, p.index);
-    const dd = p.index / peak - 1;
-    maxDrawdown = Math.min(maxDrawdown, dd);
-    drawdown.push(dd);
-  }
-
-  const netFlow = last.contributed - origin.contributed;
-  return {
-    /** Değer grafiği: taban günü gerçekten varsa dahil. */
-    dates: all.map((p) => p.date),
-    value: all.map((p) => p.value),
-    contributed: all.map((p) => p.contributed),
-    /** Getiri grafiği: her zaman %0'dan başlar. */
-    returnDates: [origin.date, ...points.map((p) => p.date)],
-    portfolio: [0, ...points.map((p) => p.index / origin.index - 1)],
-    bench: [0, ...points.map((p) => pct(p.bench, origin.bench))],
-    drawdown: [0, ...drawdown],
-    startValue: origin.value,
-    netFlow,
-    gain: last.value - origin.value - netFlow,
-    twr: last.index / origin.index - 1,
-    benchReturn: pct(last.bench, origin.bench),
-    maxDrawdown,
-  };
-}
-
 /** Takvim ayı bazında zaman ağırlıklı getiriler. */
 export function monthlyReturns(history) {
   const out = [];
