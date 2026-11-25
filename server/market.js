@@ -10,7 +10,7 @@ const QUOTE_TTL_CLOSED = 10 * 60_000;
 const CLOSE_GRACE = 30 * 60;
 const KINDS = new Set(['EQUITY', 'ETF', 'MUTUALFUND']);
 // Yahoo'nun ABD borsa kodları: NASDAQ, NYSE, AMEX, Arca, Cboe ve tezgâh üstü pazarlar.
-const US_EXCHANGES = new Set(['NMS', 'NGM', 'NCM', 'NAS', 'NYQ', 'ASE', 'PCX', 'BTS', 'CBO', 'PNK', 'OQB', 'OQX', 'OEM', 'YHD']);
+export const US_EXCHANGES = new Set(['NMS', 'NGM', 'NCM', 'NAS', 'NYQ', 'ASE', 'PCX', 'BTS', 'CBO', 'PNK', 'OQB', 'OQX', 'OEM', 'YHD']);
 
 export class MarketError extends Error {}
 
@@ -20,7 +20,7 @@ export function normalizeSymbol(raw) {
   return /^[A-Z0-9][A-Z0-9-]{0,11}$/.test(s) ? s : null;
 }
 
-async function yahoo(path) {
+export async function yahoo(path) {
   let res;
   try {
     res = await fetch(BASE + path, { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(10_000) });

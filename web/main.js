@@ -6,6 +6,7 @@ import { h } from './dom.js';
 import * as f from './format.js';
 import { openTxForm } from './form.js';
 import { icon } from './icons.js';
+import { createWatch } from './watch.js';
 
 const view = document.getElementById('view');
 const topbar = document.getElementById('topbar');
@@ -19,8 +20,6 @@ let loadError = null;
 let loadingSince = 0;
 let spinning = false;
 let renderedKey = '';
-let macro = null;
-let macroFailed = false;
 
 const store = {
   get: (k, d) => {
@@ -133,33 +132,7 @@ const stat = (label, value, extra) => h('div', { class: 'stat' }, h('span', { cl
 // Geniş ekranda sağdaki boşlukta, dar ekranda genel bakışın içinde durur.
 const wideScreen = matchMedia('(min-width: 1440px)');
 wideScreen.addEventListener('change', () => render(true));
-const macroPanel = h('aside', { class: 'macro', 'aria-labelledby': 'macro-title' });
-
-function renderMacro() {
-  const items = macro?.items ?? [];
-  const failed = macroFailed || macro?.error;
-  macroPanel.replaceChildren(...[
-    h('h2', { id: 'macro-title' }, 'Makro Göstergeler'),
-    items.length
-      ? h('ul', null, items.map((x) => h('li', null,
-        h('span', { class: 'macro-name' }, x.name),
-        h('span', { class: 'macro-symbol' }, x.symbol, x.delayed && h('span', { title: 'Borsa kuralı gereği yaklaşık 10 dakika gecikmeli' }, ' · gecikmeli')),
-        h('span', { class: 'macro-value' }, x.value == null ? '–' : f.macroValue(x)),
-        h('span', { class: 'macro-change' }, x.change == null ? '' : delta(x.change, f.macroChange(x))))))
-      : h('p', { class: 'muted' }, failed ? 'Veriler alınamadı. Yeniden denenecek.' : 'Yükleniyor…'),
-    items.length > 0 && h('p', { class: `macro-foot${failed ? ' bad' : ''}` }, failed ? `Güncellenemedi. Son veri ${f.clock(macro.asOf)}` : `${f.clock(macro.asOf)} · CNBC`),
-  ].filter(Boolean));
-}
-
-async function loadMacro(force) {
-  try {
-    macro = await api.macro(force);
-    macroFailed = false;
-  } catch {
-    macroFailed = true;
-  }
-  renderMacro();
-}
+const watch = createWatch({ toast });
 
 function emptyState() {
   return h('section', { class: 'empty' },
@@ -172,8 +145,8 @@ function emptyState() {
 }
 
 function overview() {
-  const macroInline = !wideScreen.matches && macroPanel;
-  if (!state.transactions.length) return [emptyState(), macroInline];
+  const watchInline = !wideScreen.matches && watch.box;
+  if (!state.transactions.length) return [emptyState(), watchInline];
   const { summary: m, history, positions } = state;
   const r = sliceRange(history, state.base, ui.range);
   const rangeTitle = RANGES.find((x) => x.key === ui.range).title;
@@ -202,7 +175,7 @@ function overview() {
         stat('Temettü ve faiz', f.money(m.dividends + m.interest), null),
         stat('Yıllık getiri (XIRR)', m.xirr == null ? '–' : f.signedPct(m.xirr), m.xirr == null ? '1 yıl dolunca' : 'para ağırlıklı'))),
 
-    macroInline,
+    watchInline,
 
     // Dönem seçimi varlıkları etkilemez; etkilediği grafiklerin hemen üstünde durur.
     positions.length > 0 && holdingsCard(),
@@ -616,7 +589,7 @@ function interacting() {
 
 function render(force = false) {
   renderBars();
-  if (wideScreen.matches && macroPanel.parentNode !== shell) shell.append(macroPanel);
+  if (wideScreen.matches && watch.box.parentNode !== shell) shell.append(watch.box);
   if (!state) {
     view.replaceChildren(loadError
       ? h('div', { class: 'banner bad' }, loadError, h('button', { class: 'link', onclick: () => load() }, 'Yeniden dene'))
@@ -672,7 +645,7 @@ async function load({ force = false, spin = false } = {}) {
   loadingSince = Date.now();
   spinning = spin;
   renderBars();
-  loadMacro(force);
+  watch.load(force);
   try {
     const [next] = await Promise.all([api.state(force), loadDetail()]);
     // Daha yeni bir istek başladıysa eski yanıt ekranı geri sarmasın.
@@ -729,6 +702,5 @@ window.addEventListener('online', () => {
   poll();
 });
 
-renderMacro();
 render();
 load({ spin: true });

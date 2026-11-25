@@ -16,10 +16,14 @@ export const pct = (v) => (v < -0.00005 ? MINUS : '') + '%' + n2.format(Math.abs
 export const pct1 = (v) => '%' + n1.format(v * 100);
 export const signedPct = (v) => signOf(v, (v * 100).toFixed(2)) + '%' + n2.format(Math.abs(v * 100));
 
-/** Makro göstergeler: faiz yüzde, petrol dolar, endeksler puan. */
+/** Piyasa panelleri: faiz yüzde, dolarlı fiyat $, diğerleri puan ya da kur. Küçük sayılar daha çok hane ister. */
 const n3 = num(3, 3);
-export const macroValue = (x) => (x.unit === 'yield' ? `%${n3.format(x.value)}` : (x.unit === 'usd' ? '$' : '') + n2.format(x.value));
-export const macroChange = (x) => (x.unit === 'yield' ? `${signOf(x.change, (x.change * 100).toFixed(1))}${n1.format(Math.abs(x.change * 100))} bp` : signedPct(x.changePct));
+const n4 = num(4, 4);
+const nTiny = new Intl.NumberFormat('tr-TR', { maximumSignificantDigits: 4 });
+const plain = (v, small) => (Math.abs(v) < 0.1 ? nTiny : Math.abs(v) < small ? n4 : n2).format(v);
+export const watchValue = (x) => (x.unit === 'yield' ? `%${n3.format(x.value)}` : x.unit === 'usd' ? `$${plain(x.value, 1)}` : plain(x.value, 20));
+export const watchChange = (x) =>
+  x.unit === 'yield' ? `${signOf(x.change, (x.change * 100).toFixed(1))}${n1.format(Math.abs(x.change * 100))} bp` : x.changePct == null ? '' : signedPct(x.changePct);
 
 /** Eksen için kısa tutar; adım küçükse ondalık gösterir. */
 export function axisMoney(v, step = 1) {

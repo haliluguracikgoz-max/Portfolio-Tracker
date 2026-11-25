@@ -21,7 +21,11 @@ async function request(path, method = 'GET', body) {
 const q = encodeURIComponent;
 export const api = {
   state: (force) => request(`/api/state${force ? '?refresh=1' : ''}`),
-  macro: (force) => request(`/api/macro${force ? '?refresh=1' : ''}`),
+  watch: (force) => request(`/api/watch${force ? '?refresh=1' : ''}`),
+  watchSearch: (list, text) => request(`/api/watch/search?list=${list}&q=${q(text)}`),
+  watchAdd: (list, id) => request('/api/watch/add', 'POST', { list, id }),
+  watchRemove: (list, id) => request('/api/watch/remove', 'POST', { list, id }),
+  watchRestore: (list, item, index) => request('/api/watch/restore', 'POST', { list, item, index }),
   search: (text) => request(`/api/search?q=${q(text)}`),
   price: (symbol, date) => request(`/api/price?symbol=${q(symbol)}&date=${q(date)}`),
   symbol: (symbol) => request(`/api/symbol?symbol=${q(symbol)}`),

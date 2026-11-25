@@ -6,8 +6,8 @@ import { Auth, hashPassword, newSetupCode } from '../server/auth.js';
 import { fromCsv, toCsv } from '../server/csv.js';
 import { openDb } from '../server/db.js';
 import { LedgerError, validateLedger } from '../server/ledger.js';
-import { Macro, parseMacro } from '../server/macro.js';
 import { Market, normalizeSymbol, parseChart } from '../server/market.js';
+import { DEFAULTS, parseCnbc, parseSpark, Watch } from '../server/watch.js';
 import { addMonths, isDate, nyDate } from '../shared/dates.js';
 import { parseNumber } from '../shared/number.js';
 import { monthlyReturns, sliceRange } from '../shared/range.js';
@@ -340,43 +340,109 @@ test('fiyat tazeliği: seansta hepsi, kapalıyken yalnızca endeks sık yenileni
   assert.deepEqual(await after(60 * 8 + 1), ['^GSPC']);
 });
 
-const macroJson = (over = {}) => ({ FormattedQuoteResult: { FormattedQuote: [
-  { symbol: '@CL.1', last: '83.61', previous_day_closing: '82.05', realTime: 'false', last_time: '2026-11-25T13:21:49.000-0500' },
+const cnbcJson = (over = {}) => ({ FormattedQuoteResult: { FormattedQuote: [
+  { symbol: '@CL.1', last: '83.61', previous_day_closing: '82.05', realTime: 'false' },
   { symbol: 'US10Y', last: '4.836%', previous_day_closing: '4.902%', change_pct: '+1.3%', realTime: 'true', ...over },
+  { symbol: 'US5Y', name: 'U.S. 5 Year Treasury', last: '4.65%', previous_day_closing: '4.71%', realTime: 'true' },
 ] } });
+const spark = (o) => Object.fromEntries(Object.entries(o).map(([k, [v, prev]]) => [k, { close: [null, v], chartPreviousClose: prev }]));
 
-test('makro: yüzde işareti ayıklanır, değişim önceki kapanıştan hesaplanır', () => {
-  const by = Object.fromEntries(parseMacro(macroJson()).map((x) => [x.symbol, x]));
-  assert.equal(Object.keys(by).length, 6);
-  near(by.CL.changePct, 83.61 / 82.05 - 1);
-  assert.equal(by.CL.delayed, true);
-  assert.equal(by.CL.time, Date.parse('2026-11-25T18:21:49Z'));
-  near(by.US10YT.value, 4.836);
-  near(by.US10YT.change, -0.066);
-  assert.equal(by.VIX.value, null);
+test('piyasa paneli: değişim önceki kapanıştan hesaplanır', () => {
+  const c = parseCnbc(cnbcJson());
+  near(c.get('@CL.1').changePct, 83.61 / 82.05 - 1);
+  assert.equal(c.get('@CL.1').delayed, true);
+  near(c.get('US10Y').change, -0.066);
+  assert.equal(c.get('US10Y').unit, 'yield');
+  const y = parseSpark({ ...spark({ QQQ: [630, 600], 'GC=F': [3500, 3550] }), BOS: { close: null } });
+  near(y.get('QQQ').changePct, 0.05);
+  assert.equal(y.get('GC=F').delayed, true);
+  assert.ok(!y.has('BOS'));
 });
 
-test('makro: 30 saniye önbellek, hata ve eksik veride son değer korunur', async (t) => {
+function makeWatch(over = {}) {
+  const calls = { yahoo: 0, cnbc: 0 };
+  const src = {
+    spark: () => spark({ QQQ: [630, 600], NCLD: [10, 11], VOO: [650, 640], 'GC=F': [3500, 3550], AAPL: [350, 340] }),
+    cnbc: () => cnbcJson(),
+    ...over,
+  };
+  const kinds = { VOO: 'ETF', 'GC=F': 'FUTURE', AAPL: 'EQUITY' };
+  const getYahoo = async (path) => {
+    if (path.includes('/search')) {
+      return { quotes: [
+        { symbol: 'VOO', longname: 'Vanguard S&P 500 ETF', quoteType: 'ETF', exchange: 'PCX' }, { symbol: 'VOO.MX', quoteType: 'ETF', exchange: 'MEX' },
+        { symbol: 'AAPL', quoteType: 'EQUITY', exchange: 'NMS' }, { symbol: 'VOO261218C1', quoteType: 'OPTION', exchange: 'OPR' },
+      ] };
+    }
+    if (path.includes('/chart/')) {
+      const symbol = decodeURIComponent(/chart\/([^?]+)/.exec(path)[1]);
+      return kinds[symbol] ? { chart: { result: [{ meta: { symbol, currency: 'USD', instrumentType: kinds[symbol], longName: `${symbol} adı` } }] } } : null;
+    }
+    calls.yahoo++;
+    return src.spark();
+  };
+  const getCnbc = async (url) => {
+    if (url.includes('symlookup')) return [{ ResultGenTime: 'x' }, { symbolName: 'US5Y', companyName: 'U.S. 5 Year Treasury', issueType: 'BOND' }, { symbolName: 'B', issueType: 'STOCK' }];
+    calls.cnbc++;
+    return src.cnbc();
+  };
+  const db = openDb(':memory:');
+  return { watch: new Watch(db, { getYahoo, getCnbc }), again: () => new Watch(db, { getYahoo, getCnbc }), calls, src };
+}
+const idsOf = (list) => list.items.map((x) => x.id);
+
+test('piyasa paneli: 30 saniye önbellek; bir kaynak kesilince diğeri çalışır, son değer korunur', async (t) => {
   t.mock.timers.enable({ apis: ['Date'], now: 1_000_000 });
-  let calls = 0;
-  let next = () => macroJson();
-  const macro = new Macro(async () => {
-    calls++;
-    return next();
-  });
-  const ten = (r) => r.items.find((x) => x.symbol === 'US10YT').value;
-  await Promise.all([macro.get(), macro.get()]);
-  await macro.get();
-  assert.equal(calls, 1);
+  const { watch, calls, src } = makeWatch();
+  await Promise.all([watch.get(), watch.get()]);
+  const first = await watch.get();
+  assert.deepEqual(calls, { yahoo: 1, cnbc: 1 });
+  assert.deepEqual([first.macro.items.length, first.etf.items.length], [6, 6]);
+  assert.equal(first.etf.items.find((x) => x.symbol === 'QQQ').value, 630);
 
   t.mock.timers.setTime(1_060_000);
-  next = () => macroJson({ last: 'UNCH' });
-  assert.equal(ten(await macro.get()), 4.836);
+  src.cnbc = () => ({});
+  src.spark = () => spark({ QQQ: [640, 600] });
+  const r = await watch.get();
+  assert.match(r.macro.error, /boş yanıt/);
+  assert.equal(r.macro.items.find((x) => x.symbol === 'US10YT').value, 4.836);
+  assert.equal(r.macro.asOf, 1_000_000);
+  assert.equal(r.etf.error, null);
+  assert.equal(r.etf.items.find((x) => x.symbol === 'QQQ').value, 640);
+  assert.equal(r.etf.items.find((x) => x.symbol === 'NCLD').value, 10);
+});
 
-  t.mock.timers.setTime(1_120_000);
-  next = () => ({});
-  const r = await macro.get();
-  assert.equal(ten(r), 4.836);
-  assert.match(r.error, /boş yanıt/);
-  assert.equal(r.asOf, 1_060_000);
+test('piyasa paneli: ekle, çıkar, geri al; liste kalıcıdır', async () => {
+  const { watch, again } = makeWatch();
+  const added = await watch.add('etf', 'yahoo:VOO');
+  assert.deepEqual(added.etf.items.at(-1), { id: 'yahoo:VOO', symbol: 'VOO', name: 'VOO adı', unit: 'usd', value: 650, change: 10, changePct: 650 / 640 - 1, delayed: false });
+  await assert.rejects(watch.add('etf', 'yahoo:VOO'), /zaten listede/);
+  await assert.rejects(watch.add('etf', 'yahoo:AAPL'), /yalnızca ETF/);
+  await assert.rejects(watch.add('etf', 'yahoo:YOK'), /bulunamadı/);
+  await assert.rejects(watch.add('macro', 'yahoo:../x?y'), /Geçersiz sembol/);
+  await assert.rejects(watch.add('__proto__', 'yahoo:VOO'), /Geçersiz liste/);
+  assert.equal((await watch.add('macro', 'yahoo:GC=F')).macro.items.at(-1).unit, 'usd');
+  assert.equal((await watch.add('macro', 'cnbc:US5Y')).macro.items.at(-1).unit, 'yield');
+  assert.equal((await watch.add('macro', 'yahoo:AAPL')).macro.items.length, 9);
+
+  const entry = DEFAULTS.etf[1];
+  assert.ok(!idsOf(watch.remove('etf', entry.id).etf).includes(entry.id));
+  assert.throws(() => watch.remove('etf', entry.id), /bulunamadı/);
+  assert.deepEqual(idsOf(watch.restore('etf', entry, 1).etf), [...idsOf({ items: DEFAULTS.etf }), 'yahoo:VOO']);
+  assert.throws(() => watch.restore('etf', { ...entry, id: 'yahoo:A', unit: 'kötü' }, 0), /Geçersiz kayıt/);
+
+  for (const x of DEFAULTS.etf) watch.remove('etf', x.id);
+  assert.deepEqual(idsOf((await again().get()).etf), ['yahoo:VOO']);
+  assert.deepEqual(idsOf(watch.remove('etf', 'yahoo:VOO').etf), []);
+  assert.deepEqual(idsOf((await again().get()).etf), []);
+  assert.equal((await watch.add('etf', 'yahoo:VOO')).etf.items.length, 1);
+});
+
+test('piyasa paneli: arama ETF listesinde yalnızca ABD ETF’lerini, makroda her şeyi gösterir', async () => {
+  const { watch } = makeWatch();
+  assert.deepEqual((await watch.search('etf', 'voo')).map((x) => x.id), ['yahoo:VOO']);
+  assert.deepEqual((await watch.search('macro', 'altın')).map((x) => x.id), ['cnbc:US5Y', 'yahoo:VOO', 'yahoo:VOO.MX', 'yahoo:AAPL']);
+  await watch.add('etf', 'yahoo:VOO');
+  assert.equal((await watch.search('etf', 'voo'))[0].added, true);
+  assert.deepEqual(await watch.search('etf', '  '), []);
 });

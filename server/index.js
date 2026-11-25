@@ -6,8 +6,8 @@ import { addDays, nyDate } from '../shared/dates.js';
 import { App, HttpError } from './app.js';
 import { Auth, hashPassword, MAX_PASSWORD, MIN_PASSWORD, newSetupCode } from './auth.js';
 import { defaultDbPath, getSetting, openDb, setSetting } from './db.js';
-import { Macro } from './macro.js';
 import { BENCH, Market, MarketError } from './market.js';
+import { Watch } from './watch.js';
 
 const PORT = Number(process.env.PORT ?? 4517);
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
@@ -31,11 +31,12 @@ if (HOSTED && !process.env.RAILWAY_VOLUME_MOUNT_PATH) {
 let auth = null;
 let db = null;
 let app = null;
-const macro = new Macro();
+let watch = null;
 if (!setupProblems.length) {
   const dbPath = defaultDbPath();
   db = openDb(dbPath);
   app = new App(db, new Market(db));
+  watch = new Watch(db);
   console.log(`Veritabanı: ${dbPath}`);
   const setupCode = HOSTED ? newSetupCode() : null;
   auth = new Auth({ password: PASSWORD, record: getSetting(db, 'password'), setupCode });
@@ -114,8 +115,22 @@ async function handleApi(req, res, url) {
   switch (route) {
     case 'GET /api/state':
       return json(res, { ...(await app.state(url.searchParams.get('refresh') === '1')), canLogout: auth.enabled });
-    case 'GET /api/macro':
-      return json(res, await macro.get({ force: url.searchParams.get('refresh') === '1' }));
+    case 'GET /api/watch':
+      return json(res, await watch.get({ force: url.searchParams.get('refresh') === '1' }));
+    case 'GET /api/watch/search':
+      return json(res, await watch.search(url.searchParams.get('list'), url.searchParams.get('q')));
+    case 'POST /api/watch/add': {
+      const { list, id } = await readJson(req);
+      return json(res, await watch.add(list, id));
+    }
+    case 'POST /api/watch/remove': {
+      const { list, id } = await readJson(req);
+      return json(res, watch.remove(list, id));
+    }
+    case 'POST /api/watch/restore': {
+      const { list, item, index } = await readJson(req);
+      return json(res, watch.restore(list, item, index));
+    }
     case 'GET /api/search':
       return json(res, await app.search(url.searchParams.get('q')));
     case 'GET /api/price':
@@ -200,8 +215,10 @@ async function checkPriceService() {
   } catch (e) {
     console.error(`Fiyat servisi kontrolü başarısız: ${e.message}`);
   }
-  const { items, error } = await macro.get();
-  if (error) console.error(`Makro servisi kontrolü başarısız: ${error}`);
-  else console.log(`Makro servisi çalışıyor: ${items.filter((x) => x.value != null).length}/${items.length} gösterge.`);
+  if (!watch) return;
+  for (const [list, { items, error }] of Object.entries(await watch.get())) {
+    const ready = items.filter((x) => x.value != null).length;
+    (error ? console.error : console.log)(`Piyasa paneli ${list}: ${ready}/${items.length} satır${error ? `, ${error}` : ''}`);
+  }
 }
 for (const signal of ['SIGTERM', 'SIGINT']) process.on(signal, () => process.exit(0));
