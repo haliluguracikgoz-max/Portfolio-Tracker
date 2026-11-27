@@ -548,13 +548,17 @@ const extQuote = (symbol, last, lastTime, status, e = null, more = {}) => ({
   symbol, last, last_time: lastTime, curmktstatus: status, countryCode: 'US', type: 'STOCK',
   ExtendedMktQuote: e && { type: e[0], last: e[1], last_time: e[2] }, ...more,
 });
-function makeExtended(quotes) {
-  const src = { quotes, calls: [] };
+function makeExtended(quotes, yahooQuotes = []) {
+  const src = { quotes, calls: [], yahoo: yahooQuotes, yahooCalls: [] };
   const extended = new Extended(async (url) => {
     const codes = decodeURIComponent(/symbols=([^&]+)/.exec(url)[1]).split('|');
     src.calls.push(codes);
     if (src.fail) throw new MarketError('kapalı');
     return { FormattedQuoteResult: { FormattedQuote: src.quotes.filter((q) => codes.includes(q.symbol)) } };
+  }, async (symbols) => {
+    src.yahooCalls.push(symbols);
+    if (src.yahooFail) throw new MarketError('kapalı');
+    return src.yahoo.filter((q) => symbols.includes(q.symbol));
   });
   return { extended, src };
 }
@@ -600,6 +604,50 @@ test('seans dışı fiyat: yalnızca borsa kapalıyken ve son seanstan sonraki i
   t.mock.timers.setTime(Date.parse('2026-11-27T10:06:00Z'));
   await extended.load(['AAPL']);
   assert.equal(extended.of('AAPL'), null);
+});
+
+const sec = (iso) => Date.parse(iso) / 1000;
+const yq = (symbol, regularMarketPrice, regTime, marketState, more = {}) => ({ symbol, regularMarketPrice, regularMarketTime: sec(regTime), marketState, ...more });
+
+test('seans dışı fiyat: gece seansı Yahoo’dan gelir, en yeni geçerli işlem gösterilir', async (t) => {
+  // Şükran Günü gecesi: CNBC iki gün önceki kapanış sonrası fiyatında kalıyor.
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-11-27T01:35:00Z') });
+  const close = '2026-11-25T21:00:00Z';
+  const night = { overnightMarketPrice: 161.19, overnightMarketTime: sec('2026-11-27T01:35:00Z') };
+  const { extended, src } = makeExtended([
+    extQuote('SPY', '716.70', '2026-11-25', 'POST_MKT', ['POST_MKT', '720.43', '2026-11-25']),
+    extQuote('BE', '152.89', '2026-11-25', 'POST_MKT', ['POST_MKT', '157.71', '2026-11-25']),
+  ], [
+    yq('SPY', 716.7, close, 'OVERNIGHT', { postMarketPrice: 720.43, postMarketTime: sec('2026-11-26T00:59:51Z'), overnightMarketPrice: 724.36, overnightMarketTime: sec('2026-11-27T01:35:00Z') }),
+    yq('BE', 152.89, close, 'OVERNIGHT', { postMarketPrice: 157.71, postMarketTime: sec('2026-11-26T00:59:54Z'), ...night }),
+    // Gece seansında işlem görmeyen hisse: kapanış sonrası fiyatı kalır.
+    yq('AAA', 10, close, 'OVERNIGHT', { postMarketPrice: 10.5, postMarketTime: sec('2026-11-26T00:30:00Z'), preMarketPrice: 9, preMarketTime: sec('2026-11-25T13:00:00Z') }),
+  ]);
+  await extended.load(['BE', 'AAA']);
+  assert.deepEqual(src.yahooCalls, [['SPY'], ['BE', 'AAA']]);
+  assert.deepEqual(extended.of('BE'), { price: 161.19, pct: 161.19 / 152.89 - 1, at: Date.parse('2026-11-27T01:35:00Z'), session: 'night' });
+  assert.equal(extended.of('AAA').session, 'post', 'kapanıştan önceki sabah işlemi sayılmaz');
+  near(extended.of('AAA').pct, 0.05);
+
+  // Açılış öncesinde, gecenin son işleminden daha yeni olan sabah işlemi gösterilir.
+  t.mock.timers.setTime(Date.parse('2026-11-27T12:00:00Z'));
+  src.yahoo = [
+    yq('SPY', 716.7, close, 'PRE'),
+    yq('BE', 152.89, close, 'PRE', { ...night, preMarketPrice: 162, preMarketTime: sec('2026-11-27T11:59:00Z') }),
+  ];
+  await extended.load(['BE']);
+  assert.equal(extended.of('BE').session, 'pre');
+  assert.equal(extended.of('BE').price, 162);
+
+  // CNBC kesilirse Yahoo tek başına yeter; seans açılınca hiçbir şey gösterilmez.
+  src.fail = true;
+  t.mock.timers.setTime(Date.parse('2026-11-27T12:06:00Z'));
+  await extended.load(['BE']);
+  assert.equal(extended.of('BE').price, 162);
+  src.yahoo = [yq('SPY', 717, '2026-11-27T14:40:00Z', 'REGULAR'), yq('BE', 155, '2026-11-27T14:40:00Z', 'REGULAR', night)];
+  t.mock.timers.setTime(Date.parse('2026-11-27T14:41:00Z'));
+  await extended.load(['BE']);
+  assert.equal(extended.of('BE'), null);
 });
 
 test('seans dışı fiyat: panelde yalnızca ABD hisse, ETF ve endekslerine eklenir', async () => {

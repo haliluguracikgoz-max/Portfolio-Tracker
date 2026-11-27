@@ -10,7 +10,7 @@ Amerikan borsalarındaki hisse ve fonlar için kişisel portföy takip uygulamas
 - **Nakit düzenle:** girilen tutar o günden itibaren nakit bakiyesi olur. Fark yatırılan ya da çekilen para sayılır, kazanç gibi görünmez. İşlem listesinde görünmez, CSV yedeğinde `ADJUST` satırı olarak yer alır.
 - **Otomatik:** canlı fiyat, hisse bölünmesi düzeltmesi, kaydedilmemiş temettü önerileri.
 - **Canlı:** veriler sayfa açıkken 60 saniyede bir yenilenir.
-- **Seans dışı fiyat:** borsa kapalıyken ABD hisse, ETF ve endekslerinin açılış öncesi ve kapanış sonrası fiyatı, asıl fiyatın altında parantez içinde. Endekslerde izleyen fonun hareketine göre yaklaşıktır.
+- **Seans dışı fiyat:** borsa kapalıyken ABD hisse, ETF ve endekslerinin açılış öncesi, kapanış sonrası ve gece seansı (20:00-04:00 ET, Blue Ocean) fiyatı, asıl fiyatın altında parantez içinde; hangisi en yeniyse o. Açılış öncesi ve kapanış sonrası CNBC'den, gece seansı Yahoo'nun kotasyon servisinden gelir; biri erişilemezse diğeriyle devam edilir. Endekslerde izleyen fonun hareketine göre yaklaşıktır.
 - **Piyasa panelleri:** Takip Edilen Hisseler, Diğer Takip Edilenler, Makro Göstergeler, ETFs ve Diğer Sektör ETF’leri. Hepsine arayıp ekleme ve çıkarma yapılabilir; listeler sunucuda saklanır. Kaynak Yahoo Finance ve CNBC'nin resmî olmayan servisleri; vadeli kontratlar yaklaşık 10 dakika gecikmeli.
 - **Mobil:** iPhone ve Android'e uygun düzen; ana ekrana eklenip uygulama gibi açılabilir.
 - Koyu (varsayılan) ve açık tema, Türkçe arayüz.

@@ -3,7 +3,7 @@ import { parseNumber } from '/shared/number.js';
 import { api } from './api.js';
 import { columnChart, legend, lineChart, sparkline, treemap } from './charts.js';
 import { h } from './dom.js';
-import { extPrice } from './ext.js';
+import { extPrice, SESSION_NAME } from './ext.js';
 import * as f from './format.js';
 import { openTxForm } from './form.js';
 import { icon } from './icons.js';
@@ -487,7 +487,7 @@ function symbolView(symbol) {
       h('div', { class: 'hero-main' },
         h('h1', { class: 'label' }, h('b', null, d.info.symbol), ` ${d.info.name}`),
         h('p', { class: 'hero-value' }, d.quote ? f.price(d.quote.price) : '–'),
-        d.ext && h('p', { class: 'hero-ext' }, extPrice(d.ext, f.price), h('span', { class: 'muted' }, ` ${d.ext.session === 'pre' ? 'açılış öncesi' : 'kapanış sonrası'}`)),
+        d.ext && h('p', { class: 'hero-ext' }, extPrice(d.ext, f.price), h('span', { class: 'muted' }, ` ${SESSION_NAME[d.ext.session].toLocaleLowerCase('tr')}`)),
         d.quote && h('p', { class: 'hero-day' }, delta(dayChange, `${f.signedMoney(dayChange)} (${f.signedPct(d.quote.price / d.quote.prevClose - 1)})`), h('span', { class: 'muted' }, ` ${d.info.exchange} · ${f.sectorName(d.info)}`)),
         h('div', { class: 'actions' },
           h('button', { class: 'btn primary', onclick: () => openForm({ type: 'BUY', symbol }) }, 'Al'),
